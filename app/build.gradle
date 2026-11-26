@@ -1,0 +1,38 @@
+plugins { id 'com.android.application' }
+
+def baseVersion = '1.0.1'
+def buildNumber = Integer.parseInt(System.getenv('TANK_BUILD_NUMBER') ?: '0')
+
+android {
+    namespace 'com.worta.tanks'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.worta.tanks'
+        minSdk 26
+        targetSdk 35
+        versionCode (buildNumber > 0 ? 100 + buildNumber : 2)
+        versionName (buildNumber > 0 ? baseVersion + '.' + buildNumber : baseVersion)
+    }
+    signingConfigs {
+        development {
+            storeFile rootProject.file(System.getenv('TANK_KEYSTORE_PATH') ?: 'signing/local.jks')
+            storePassword System.getenv('TANK_KEYSTORE_PASSWORD')
+            keyAlias System.getenv('TANK_KEY_ALIAS')
+            keyPassword System.getenv('TANK_KEY_PASSWORD')
+        }
+    }
+    buildTypes {
+        debug {
+            if (System.getenv('TANK_KEYSTORE_PATH')) signingConfig signingConfigs.development
+        }
+        release {
+            if (System.getenv('TANK_KEYSTORE_PATH')) signingConfig signingConfigs.development
+            minifyEnabled false
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
