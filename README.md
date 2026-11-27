@@ -77,3 +77,12 @@ Validation: `bash tests/run.sh` and `npm ci --prefix tests --ignore-scripts && p
 - The host now broadcasts each damage/heal event during the turn. Guests update HP and floating damage numbers immediately on receipt; final turn reconciliation still verifies HP and terrain.
 
 Tests cover named room listing, click-to-join, admission restrictions/rejection, explicit team assignments and capacity, 2-versus-1 starts, and health events arriving exactly once before turn end. Physical Android Wi-Fi discovery still requires device testing. All players should install this version for the updated lobby protocol.
+
+## 1.1.2 — Adaptive rendering, weapon balance and match lifecycle
+
+- Auto quality starts at a maximum 1.25 device pixel ratio. Sustained slow RAF intervals switch to 1x resolution, 30 FPS drawing, fewer flat particles and less ambient weather. Fixed physics remains 60 Hz, and the minimap is refreshed less frequently. Explicit high quality remains available.
+- The missile barrage is now named `وابل صواريخ`, fires three missiles for at most 30 direct damage per tank per attack, and uses 10 damage per missile. Cluster, plasma, volcano, meteor, laser, drill, sticky and triple attacks have lower damage and per-target attack budgets. Death bursts with zero damage no longer cause the previous minimum six damage. Fall damage remains independent.
+- Android Back (including the modern gesture callback) asks for confirmation. Home/app-switch preserves the live WebView state and runs native room heartbeats for up to two minutes. This does not survive force-stop, process reclamation or closing the host. If the host is backgrounded, host-side physics may wait for its return.
+- Each round lasts ten minutes. Room polls share the server deadline. At expiry the host ends the match and broadcasts the winner: highest remaining HP in free-for-all, or greatest total team HP; equal leaders draw.
+
+Validation includes barrage count and accumulated damage, multi-hit weapon budgets, adaptive render scale/effect counts, timer expiry/ties and four-client agreement on the team winner. Actual Snapdragon 685 frame rate, physical-device background behavior and Wi-Fi discovery remain unmeasured.

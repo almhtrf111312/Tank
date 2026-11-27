@@ -1,6 +1,9 @@
 package com.worta.tanks;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.os.SystemClock;
+import java.util.concurrent.*;
 import android.content.Context;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
@@ -23,9 +26,15 @@ public final class MainActivity extends Activity {
     private PowerManager.WakeLock awake;
     private volatile Discovery.Endpoint host;
     private byte[] page;
+    private volatile byte[] sessionAuth;
+    private final ScheduledExecutorService keepAlive=Executors.newSingleThreadScheduledExecutor();
+    private ScheduledFuture<?> backgroundTask;
+    private long backgroundSince;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        if(android.os.Build.VERSION.SDK_INT>=33)
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::confirmExit);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
@@ -68,7 +77,7 @@ public final class MainActivity extends Activity {
                                             byte[] body, boolean local) throws Exception {
         if (method.equals("GET") && path.equals("/") && local)
             return new LocalHttpServer.Response(200, "text/html; charset=utf-8", page);
-        if (!method.equals("POST") || !path.matches("/room/(create|join|poll|ready|start|packet|leave|discover|team|decision)"))
+        if (!method.equals("POST") || !path.matches("/room/(create|join|poll|ready|start|packet|leave|discover|team|decision|heartbeat)"))
             return LocalHttpServer.Response.json(404, Json.object("error", "طلب غير موجود"));
         String origin = headers.get("origin");
         if (origin != null && !origin.equals("http://127.0.0.1:" + server.port()))
@@ -90,6 +99,7 @@ public final class MainActivity extends Activity {
                 discovery.unadvertise();
                 throw new IllegalArgumentException("تعذّر إعلان الغرفة. تأكد من الواي فاي ثم أعد المحاولة");
             }
+            rememberSession(result);
             return LocalHttpServer.Response.json(200, result);
         }
         if (action.equals("join") && local && !engine.code().equals(Json.text(data, "code"))) {
@@ -105,10 +115,12 @@ public final class MainActivity extends Activity {
                 host = discovery.find(Json.text(data, "code"));
                 response = forward(host, path, body);
             }
-            if (action.equals("leave")) host = null;
+            if(action.equals("join") && response.status==200)rememberSession(Json.parse(new String(response.body,StandardCharsets.UTF_8)));
+            if (action.equals("leave")) {host = null;sessionAuth=null;}
             return response;
         }
         Object result = engine.call(action, data);
+        if(action.equals("leave") && local)sessionAuth=null;
         if (engine.code().isEmpty()) discovery.unadvertise();
         return LocalHttpServer.Response.json(200, result);
     }
@@ -156,7 +168,34 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void rememberSession(Object result) {
+        Map<String,Object> value=Json.map(result);
+        sessionAuth=Json.stringify(Json.object("code",value.get("code"),"token",value.get("token"))).getBytes(StandardCharsets.UTF_8);
+    }
+    @Override public void onBackPressed() { confirmExit(); }
+    private void confirmExit() {
+        new AlertDialog.Builder(this).setTitle("هل تريد الخروج؟")
+            .setMessage("الخروج يغلق جلستك. للرجوع خلال دقيقتين انتقل مؤقتاً لتطبيق آخر بزر الرئيسية.")
+            .setNegativeButton("متابعة اللعب",(dialog,which)->dialog.dismiss())
+            .setPositiveButton("خروج",(dialog,which)->finish()).show();
+    }
+    @Override protected void onPause() {
+        super.onPause();backgroundSince=SystemClock.elapsedRealtime();
+        if(backgroundTask!=null)backgroundTask.cancel(false);
+        backgroundTask=keepAlive.scheduleWithFixedDelay(()->{
+            byte[] auth=sessionAuth;if(auth==null||SystemClock.elapsedRealtime()-backgroundSince>120_000)return;
+            try {
+                Discovery.Endpoint target=host;
+                if(target!=null)forward(target,"/room/heartbeat",auth);
+                else engine.call("heartbeat",Json.map(Json.parse(new String(auth,StandardCharsets.UTF_8))));
+            } catch(Exception ignored) { /* Returning to the app resumes normal reconnect retries. */ }
+        },0,10,TimeUnit.SECONDS);
+    }
+    @Override protected void onResume() {
+        super.onResume();if(backgroundTask!=null){backgroundTask.cancel(false);backgroundTask=null;}
+    }
     @Override protected void onDestroy() {
+        keepAlive.shutdownNow();
         if (web != null) { web.stopLoading(); web.destroy(); }
         if (discovery != null) discovery.close();
         if (server != null) { try { server.close(); } catch (IOException ignored) {} }

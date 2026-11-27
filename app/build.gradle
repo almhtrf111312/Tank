@@ -1,6 +1,6 @@
 plugins { id 'com.android.application' }
 
-def baseVersion = '1.1.1'
+def baseVersion = '1.1.2'
 def buildNumber = Integer.parseInt(System.getenv('TANK_BUILD_NUMBER') ?: '0')
 
 android {

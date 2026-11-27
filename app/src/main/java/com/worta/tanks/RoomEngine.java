@@ -24,7 +24,7 @@ final class RoomEngine {
         int count, hp, cursor, turn, sequence, seriesLength = 1, seriesRound;
         String format = "free"; boolean trajectory = true;
         boolean started, fired, done;
-        long seen;
+        long seen,deadline;
         final Set<String> rejected = new HashSet<>();
         final Map<String, Player> players = new LinkedHashMap<>();
         final Deque<Map<String, Object>> events = new ArrayDeque<>();
@@ -112,7 +112,7 @@ final class RoomEngine {
                 List<Object> roster = new ArrayList<>(), events = new ArrayList<>();
                 for (Player p : room.players.values()) roster.add(Json.object("idx", p.index, "ready", p.ready, "connected", now - p.seen < 8000,"approved",p.approved,"team",p.team,"name",p.name));
                 for (Map<String, Object> e : room.events) if (Json.number(e, "id") > cursor) events.add(e);
-                return Json.object("players", roster, "events", events, "started", room.started,"format",room.format,"name",room.name);
+                return Json.object("players", roster, "events", events, "started", room.started,"format",room.format,"name",room.name,"remainingMs",Math.max(0,room.deadline-now));
             case "decision":
                 require(index==0 && !room.started,"المضيف يقرر قبل بدء المعركة");
                 int target=Json.number(data,"target");
@@ -131,6 +131,7 @@ final class RoomEngine {
                 require(team==-1 || room.players.values().stream().filter(p->p!=player && p.team==team).count()<2,"الفريق مكتمل؛ الحد لاعبان");
                 if(player.team!=team){player.team=team;player.ready=index==0 && team>=0;}
                 break;
+            case "heartbeat": break;
             case "ready":
                 require(!room.started && player.approved, "بانتظار قبول المضيف أو بدأت المعركة");
                 require(!room.format.equals("teams") || player.team>=0,"اختر فريقك أولاً");
@@ -143,7 +144,7 @@ final class RoomEngine {
                 String theme = Json.text(data, "theme");
                 require(Arrays.asList("aurora", "canyon", "cyber").contains(theme), "ساحة غير صالحة");
                 room.seriesRound = room.seriesRound >= room.seriesLength ? 1 : room.seriesRound + 1;
-                room.started = true;
+                room.started = true;room.deadline=now+600_000;
                 room.fired = room.done = false;
                 room.turn = room.sequence = 0;
                 room.match = token();

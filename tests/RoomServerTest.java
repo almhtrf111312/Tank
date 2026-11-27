@@ -126,6 +126,10 @@ public final class RoomServerTest {
         resumable.call("packet",auth(resumeHost,"msg",environmental));
         resumable.call("packet",auth(resumeHost,"msg",Json.object("type","LAN_RESULT","turnSeq",0,"matchId",settings.get("matchId"),"nextIdx",1,"done",false,"tanks",Collections.nCopies(4,Json.object()))));
 
+        check(Json.number(resumed,"remainingMs")==535000,"Shared ten-minute deadline after reconnect");
+        for(long time=100000;time<=600000;time+=100000){resumeClock.set(time);for(Map<String,Object> p:resumePlayers)resumable.call("heartbeat",auth(p));}
+        Map<String,Object> timed=Json.map(resumable.call("poll",auth(resumeHost,"cursor",0)));
+        check(Json.number(timed,"remainingMs")==0,"Timer reaches zero despite heartbeats");
         RoomEngine lobby=new RoomEngine();
         Map<String,Object> lh=Json.map(lobby.call("create",Json.object("count",3,"hp",100,"format","teams","roomName","غرفة الأصدقاء","playerName","Host")));
         check(Json.text(lh,"name").equals("غرفة الأصدقاء"),"Named room");

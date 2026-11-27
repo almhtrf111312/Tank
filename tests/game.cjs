@@ -7,7 +7,7 @@ let src = readFileSync(__dirname+'/../app/src/main/assets/index.html','utf8').sp
 src = src.replace('      window.onload = () => {', `      window.testing = {
   terrain:()=>solidMask, WORLD_W, isSolid, crumbleTankSupport, net, state, config, render, resizeCanvas, enterRoom,roomCommand,pollNow:()=>poll(session),sent:()=>session.out,session:()=>session, stepPhysics, fireWeapon,
   selectWeapon, aimAtWorld, toggleOverview, finishLanTurn, applyTankDamage, carveTerrain, startNewGame, getWeapon, shotSpeed, traceBeam, fireBeam, onProjectileImpact, chooseComputerShot, traceShot,
-  collapseTerrain,prefs,applyControls,battleFinished,upgradeStep,endGame,survivors,prepareAITurn,refreshRooms,
+  collapseTerrain,prefs,applyControls,battleFinished,upgradeStep,endGame,survivors,prepareAITurn,refreshRooms,timeoutWinner,expireMatch,observeFrame,renderScale,economicQuality,effectCount,
   mask: () => {
     let hash=2166136261;
     for (const value of solidMask) hash=Math.imul(hash ^ value,16777619);
@@ -112,6 +112,10 @@ async function test(){
  const retryActor=pages[2];retryActor.api.selectWeapon('shield');await drain();retryActor.sandbox.dropNextPacketReply=true;retryActor.api.fireWeapon(.5);
  await drain();await drain();frames([host],350);await drain();frames(pages.slice(1),400);await drain();
  for(const p of pages)assert.equal(p.api.state.turnSeq,3,'lost packet reply retries exactly once without duplicate turn');
+ // All peers end a timed match with the host's team-health winner.
+ [30,20,40,30].forEach((hp,i)=>host.api.state.tanks[i].hp=hp);
+ host.api.expireMatch();await drain();frames(pages.slice(1),2);await drain();
+ for(const p of pages){assert.equal(p.api.state.gameOver,true);assert.match(p.el('winnerTitle').textContent,/الثاني/);}
  const solo=page(844,390),api=solo.api;api.config.mode='pvp';solo.el('seatCount').value='4';api.config.format='teams';api.startNewGame(818,0);
  assert.equal(api.state.tanks.length,4);api.state.tanks[1].hp=api.state.tanks[3].hp=0;assert.ok(api.battleFinished());api.endGame(api.state.tanks[0]);assert.match(solo.el('winnerTitle').textContent,/فريق/);assert.match(solo.el('winnerStats').textContent,/الدبابة/);
  api.config.format='free';api.startNewGame(819,0);const mask=api.terrain(),w=api.WORLD_W,tank=api.state.tanks[0];
@@ -120,8 +124,19 @@ async function test(){
  api.startNewGame(820,0);api.state.turnSeq=0;const enemy=api.state.tanks[1];api.onProjectileImpact({weapon:api.getWeapon('mine'),x:enemy.x,y:enemy.y+8,ownerIdx:0});
  assert.equal(api.state.mines.length,1);api.upgradeStep();assert.equal(api.state.mines.length,1,'not armed on placement turn');api.state.turnSeq=1;const hp=enemy.hp;api.upgradeStep();assert.equal(api.state.mines.length,0);assert.ok(enemy.hp<hp,'mine harms nearby tank');
  for(const level of ['normal','medium','hard']){api.config.mode='pvai';api.config.aiLevel=level;api.startNewGame(821,0);api.state.activeIdx=1;api.prepareAITurn();assert.ok(api.state.aiState && api.state.tanks[1].ammo[api.state.tanks[1].selectedWeapon]>0);for(let i=0;i<2;i++)api.stepPhysics();const plan=api.chooseComputerShot(api.state.tanks[1],api.state.tanks[0],level==='hard');assert.ok(Number.isFinite(plan.power)&&plan.power<=1);}
+ // Barrage emits exactly three missiles and its full attack cannot erase a fresh tank.
+ api.config.mode='pvp';api.config.format='free';solo.el('seatCount').value='2';api.startNewGame(912,0);api.selectWeapon('itano');api.fireWeapon(.6);
+ assert.equal(api.state.projectiles.length,3);assert.equal(api.getWeapon('itano').name,'وابل صواريخ');
+ const target=api.state.tanks[1],initialHP=target.hp;
+ for(let i=0;i<3;i++)api.applyTankDamage(target,10);
+ api.applyTankDamage(target,10);assert.equal(initialHP-target.hp,30,'entire barrage capped at 30');assert.ok(target.hp>0);
+ for(const [weapon,cap] of [['volcano',38],['mirv',36],['plasma',36],['meteor',40]]){
+   api.startNewGame(913,0);api.selectWeapon(weapon);api.fireWeapon(.5);const t=api.state.tanks[1],hp=t.hp;for(let i=0;i<12;i++)api.applyTankDamage(t,20);assert.equal(hp-t.hp,cap,weapon+' total cap');
+ }
+ api.startNewGame(914,0);const first=api.state.tanks[0],second=api.state.tanks[1];first.hp=30;second.hp=40;assert.equal(api.timeoutWinner().idx,1);second.hp=30;assert.equal(api.timeoutWinner(),null,'equal HP draws');second.hp=40;api.state.matchDeadline=now-1;api.upgradeStep();assert.equal(api.state.gameOver,true,'deadline ends the match');assert.match(solo.el('winnerTitle').textContent,/الزرقاء/);api.startNewGame(915,0);
+ api.prefs.quality='auto';solo.sandbox.devicePixelRatio=3;assert.equal(api.renderScale(),1.25);for(let i=0;i<90;i++)api.observeFrame(35);assert.equal(api.economicQuality(),true);assert.equal(api.renderScale(),1);assert.ok(api.effectCount(100)<30);
  if(process.env.TANK_PREVIEW)writeFileSync(process.env.TANK_PREVIEW,pages[0].el('gameCanvas').toBuffer('image/png'));
  api.prefs.quality='low';api.state.particles=Array.from({length:400},()=>({life:10}));const beforeHP=api.state.tanks[0].hp;api.upgradeStep();assert.ok(api.state.particles.length<=100);assert.equal(api.state.tanks[0].hp,beforeHP,'quality never changes gameplay damage');
- console.log('PASS named-room listing and click-to-join, host approval, explicit teams, immediate HP and floating damage before turn end, four HTTP clients, authoritative movement/terrain, delayed shots, tournament, mines, AI and rendering.');
+ console.log('PASS 3-missile barrage and attack caps, adaptive resolution/effects, ten-minute expiry with shared team winner and ties, plus named lobbies, admission, teams, immediate damage, reconnection, physics and rendering.');
 }
 test().catch(e=>{console.error(e);process.exitCode=1});

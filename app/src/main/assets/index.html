@@ -635,6 +635,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       </div>
     </div>
 
+    <span id="matchClock" style="position:absolute;top:65px;left:12px;z-index:25;color:#e2f4ef;background:#10252b99;border-radius:6px;padding:4px 8px;font:12px monospace" aria-label="الوقت المتبقي">10:00</span>
     <div id="turnStatus" class="turn-status" aria-live="polite"></div>
     <button id="btnMap" class="map-toggle" type="button" aria-pressed="false" aria-label="عرض الساحة كاملة">
       <canvas id="mapCanvas" width="184" height="58"></canvas><span>الخريطة</span>
@@ -852,17 +853,17 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       const WEAPONS = [
         { id:'mine',name:'لغم أرضي',icon:'◈',ammo:3,dmg:34,radius:48,type:'mine',color:'#a3e635',desc:'يبقى عند نقطة الاصطدام ويُفعّل عند اقتراب دبابة في دور لاحق.' },
         { id: 'shell', name: 'قذيفة قياسية', icon: '💥', ammo: Infinity, dmg: 38, radius: 52, type: 'shell', color: '#fbbf24', desc: 'قذيفة مدفعية متوازنة بانفجار ناري' },
-        { id: 'mirv', name: 'قذيفة انشطارية', icon: '🎆', ammo: 4, dmg: 28, radius: 42, type: 'mirv', color: '#f43f5e', desc: 'تنشطر في القمة إلى 5 رؤوس ملونة!' },
-        { id: 'drill', name: 'خارقة الأرض', icon: '🔩', ammo: 3, dmg: 54, radius: 64, type: 'drill', color: '#f97316', desc: 'تخترق الجبال وتحفر نفقاً ثم تنفجر بالداخل!' },
-        { id: 'kame', name: 'نبضة ليزر', icon: '⚡', ammo: 2, dmg: 41, range: 1400, hitRadius: 25, cutRadius: 17, width: 28, type: 'beam', color: '#38bdf8', desc: 'شعاع بعيد المدى يخترق التضاريس.' },
-        { id: 'meteor', name: 'ضربة النيزك', icon: '☄️', ammo: 2, dmg: 72, radius: 92, type: 'meteor', color: '#ef4444', callout: '☄️ استدعاء النيزك السماوي!', desc: 'انقر على الخريطة لفتح بوابة وإنزال نيزك عملاق!' },
-        { id: 'itano', name: 'وابل صواريخ أنمي', icon: '🚀', ammo: 3, dmg: 22, radius: 34, type: 'itano', color: '#a855f7', callout: '🚀 إعصار الصواريخ المتتبعة!', desc: '7 صواريخ تلتف بدخان أنمي وتنقض على الخصم!' },
-        { id: 'blackhole', name: 'الثقب الأسود', icon: '🌀', ammo: 1, dmg: 65, radius: 86, type: 'blackhole', color: '#8b5cf6', callout: '🌀 تفجير الثقب الأسود!', desc: 'يجذب دبابة الخصم والغبار ثم ينهار بانفجار هائل!' },
-        { id: 'plasma', name: 'كرة البلازما المرتدة', icon: '🔮', ammo: 3, dmg: 30, radius: 44, type: 'plasma', color: '#22d3ee', desc: 'ترتد 3 مرات عن الجبال وتنفجر بكل ارتداد!' },
-        { id: 'volcano', name: 'ثوران البركان', icon: '🌋', ammo: 2, dmg: 26, radius: 36, type: 'volcano', color: '#ea580c', callout: '🌋 ثوران البركان الملتهب!', desc: 'تقذف 8 كرات حمم بركانية متفجرة للأعلى!' },
+        { id: 'mirv', name: 'قذيفة انشطارية', icon: '🎆', ammo: 4, dmg: 12, radius: 42, type: 'mirv', color: '#f43f5e', desc: 'تنشطر في القمة إلى 5 رؤوس ملونة!' },
+        { id: 'drill', name: 'خارقة الأرض', icon: '🔩', ammo: 3, dmg: 40, radius: 64, type: 'drill', color: '#f97316', desc: 'تخترق الجبال وتحفر نفقاً ثم تنفجر بالداخل!' },
+        { id: 'kame', name: 'نبضة ليزر', icon: '⚡', ammo: 2, dmg: 32, range: 1400, hitRadius: 25, cutRadius: 17, width: 28, type: 'beam', color: '#38bdf8', desc: 'شعاع بعيد المدى يخترق التضاريس.' },
+        { id: 'meteor', name: 'ضربة النيزك', icon: '☄️', ammo: 2, dmg: 40, radius: 92, type: 'meteor', color: '#ef4444', callout: '☄️ استدعاء النيزك السماوي!', desc: 'انقر على الخريطة لفتح بوابة وإنزال نيزك عملاق!' },
+        { id: 'itano', name: 'وابل صواريخ', icon: '🚀', ammo: 3, dmg: 10, radius: 34, type: 'itano', color: '#a855f7', callout: '🚀 وابل صواريخ!', desc: '3 صواريخ موجهة؛ مجموع الضرر المباشر لا يتجاوز 30 لكل دبابة.' },
+        { id: 'blackhole', name: 'الثقب الأسود', icon: '🌀', ammo: 1, dmg: 38, radius: 86, type: 'blackhole', color: '#8b5cf6', callout: '🌀 تفجير الثقب الأسود!', desc: 'يجذب دبابة الخصم والغبار ثم ينهار بانفجار هائل!' },
+        { id: 'plasma', name: 'كرة البلازما المرتدة', icon: '🔮', ammo: 3, dmg: 18, radius: 44, type: 'plasma', color: '#22d3ee', desc: 'ترتد 3 مرات عن الجبال وتنفجر بكل ارتداد!' },
+        { id: 'volcano', name: 'ثوران البركان', icon: '🌋', ammo: 2, dmg: 14, radius: 36, type: 'volcano', color: '#ea580c', callout: '🌋 ثوران البركان الملتهب!', desc: 'أربع كرات حمم؛ ضرر الهجمة محدود ومتوازن.' },
         { id: 'shield', name: 'درع طاقة وإصلاح', icon: '🛡️', ammo: 2, dmg: 0, radius: 0, type: 'shield', color: '#22c55e', callout: '🛡️ تفعيل الدرع النانوي (+35)!', desc: 'يصلح +35 صحة ويفعّل درعاً يقلل الضرر 40%!' },
-        { id: 'triple', name: 'رشقة ثلاثية', icon: '✦', ammo: 3, dmg: 17, radius: 32, type: 'shell', color: '#ffd491', desc: 'ثلاث قذائف خفيفة بزوايا متقاربة.' },
-        { id: 'sticky', name: 'قذيفة لاصقة', icon: '◉', ammo: 2, dmg: 46, radius: 49, type: 'sticky', color: '#f9a8d4', desc: 'تلتصق عند الاصطدام ثم تنفجر بعد لحظة.' },
+        { id: 'triple', name: 'رشقة ثلاثية', icon: '✦', ammo: 3, dmg: 12, radius: 32, type: 'shell', color: '#ffd491', desc: 'ثلاث قذائف خفيفة بزوايا متقاربة.' },
+        { id: 'sticky', name: 'قذيفة لاصقة', icon: '◉', ammo: 2, dmg: 38, radius: 49, type: 'sticky', color: '#f9a8d4', desc: 'تلتصق عند الاصطدام ثم تنفجر بعد لحظة.' },
         { id: 'pulse', name: 'نبضة دافعة', icon: '◎', ammo: 3, dmg: 15, radius: 90, type: 'pulse', color: '#99f6e4', desc: 'تدفع الدبابات القريبة وتترك الأرض سليمة.' }
       ];
 
@@ -1002,6 +1003,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       // ============================================================
       const net = {active:false, connected:false, role:null, localTankIdx:0, lastSyncSend:0, matchStarted:false};
       const el = id => document.getElementById(id);
+      const SHOT_CAPS={shell:38,itano:30,mirv:36,drill:40,kame:32,meteor:40,blackhole:38,plasma:36,volcano:38,triple:36,sticky:38,pulse:15,mine:34};
       let session = null, lanBackup = null, lanResult = null, lanCuts = [];
       let terrainHistory=[],terrainRects=[],terrainDirty=false,remoteControl=null,lastHostState=0;
       let tournament=null,matchSeed=0;
@@ -1096,6 +1098,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           const data=await api('poll',{...s.auth,cursor:s.cursor});
           if (s!==session) return;
           s.disconnectedAt=0;net.connected=true;updateNetBadge();
+          if(data.started && Number.isFinite(data.remainingMs))state.matchDeadline=performance.now()+data.remainingMs;
           renderLobby(s,data);
           if (data.events.length) {
             s.cursor=data.events.at(-1).id;
@@ -1155,7 +1158,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         }
         if (msg.type === 'LAN_RESULT' && net.role === 'guest' && msg.turnSeq >= state.turnSeq) {
           lanResult = msg;
-          if(state.phase==='aim' || state.phase==='gameover'){state.phase='settle';state.settleTimer=0;state.settleDeadline=0;}
+          if(msg.timedOut||state.phase==='aim' || state.phase==='gameover'){if(msg.timedOut){state.projectiles=[];state.beams=[];state.pendingBeam=null;state.portals=[];state.blackHoles=[];state.cracklers=[];}state.phase='settle';state.settleTimer=0;state.settleDeadline=0;}
           return;
         }
         if (msg.type !== 'SYNC_TANK' && msg.type !== 'FIRE') return;
@@ -1215,7 +1218,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           state.turnSeq=result.turnSeq+1;
           if (result.done) {
             updateHUD();
-            endGame(state.tanks.find(t => t.hp > 0) ?? null);
+            state.timedOut=!!result.timedOut;endGame(result.winnerIdx!==undefined?(state.tanks[result.winnerIdx]??null):(state.tanks.find(t => t.hp > 0)??null));
           } else {
             beginTurn(result.nextIdx,result.wind,true,true);
           }
@@ -1472,6 +1475,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
 
         matchSeed=customSeed !== null ? customSeed : Math.floor(Math.random() * 1e9);setSeed(matchSeed);
         document.getElementById('btnResume').hidden = false;
+        state.matchDeadline=performance.now()+600000;state.timedOut=false;state.shotDamage={};
         state.running = true; state.gameOver = false; state.phase = 'aim'; state.turnFired = false; state.turnSeq = 0;
         lanCuts = []; lanBackup = null; lanResult = null;terrainHistory=[];terrainRects=[];terrainDirty=false;remoteControl=null;state.mines=[];
         state.flashAlpha = 0; state.shakeTime = 0; state.hitStop = 0;
@@ -1571,10 +1575,11 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           title.style.color = winner.glow;
           stats.textContent = `انتهت المواجهة الملحمية في الجولة ${state.round} بدم متبقٍ ${Math.ceil(winner.hp * winner.healthLabel / winner.maxHp)}٪.`;
         } else {
-          title.textContent = 'تدمير متبادل! تعادل!';
+          title.textContent = state.timedOut?'انتهى الوقت — تعادل!':'تدمير متبادل! تعادل!';
           title.style.color = '#fde047';
-          stats.textContent = `تدمّرت الدبابتان معاً في الجولة ${state.round}!`;
+          stats.textContent = state.timedOut?'تساوى الدم عند انتهاء الدقائق العشر.':`تدمير متبادل في الجولة ${state.round}!`;
         }
+        if(state.timedOut && winner)stats.textContent='انتهت الدقائق العشر؛ الفوز بحسب '+(config.format==='teams'?'مجموع دم الفريق.':'الدم المتبقي.');
         if(tournament){
           if(winner)state.tanks.filter(t=>t.team===winner.team).forEach(t=>tournament.scores[t.idx]++);
           tournament.complete=tournament.round>=config.seriesLength;
@@ -1623,7 +1628,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         }
 
         if (config.mode === 'p2p') checkpointLanShot();
-        state.turnFired = true;haptic(12);
+        state.turnFired = true;state.shotDamage={};haptic(12);
         if (isFinite(tank.ammo[w.id])) tank.ammo[w.id]--;
         state.charging = false; state.chargePower = 0;
         updatePowerHUD(); updateWeaponHUD(); updateTurnStatus();
@@ -1677,8 +1682,8 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         if (w.type === 'itano') {
           const enemy = nearestEnemy(tank);
           state.phase = 'firing'; state.camera.manualPan = false;
-          for (let i = 0; i < 7; i++) {
-            const spread = tank.aimAngle + (i - 3) * 0.22;
+          for (let i = 0; i < 3; i++) {
+            const spread = tank.aimAngle + (i - 1) * 0.22;
             const spd = 7 + (i % 3) * 1.4;
             state.projectiles.push({
               x: muzzleX, y: muzzleY,
@@ -1785,6 +1790,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       }
 
       function spawnFireworkCracklers(cx, cy, baseColor, count = 6) {
+        count=effectCount(count);
         const palette = ['#f43f5e', '#38bdf8', '#fde047', '#a855f7', '#4ade80', '#fb923c', baseColor];
         sfx.playCrackle(count);
         for (let i = 0; i < count; i++) {
@@ -1823,7 +1829,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         if (isMega) state.particles.push({ type: 'shockwave', x: cx, y: cy, r: 2, maxR: radius * 2.8, life: 36, maxLife: 36, color: '#fde047' });
 
         // 3. Radial Anime Streak Sparks (Speed-lines!)
-        const streakCount = isMega ? 24 : 14;
+        const streakCount = effectCount(isMega ? 24 : 14);
         for (let i = 0; i < streakCount; i++) {
           const a = (i / streakCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.22;
           const spd = 7 + Math.random() * (isMega ? 12 : 7.5);
@@ -1835,7 +1841,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         }
 
         // 4. High-energy Fireballs & Twinkling Glitter Sparks
-        const cnt = isMega ? 58 : 34;
+        const cnt = effectCount(isMega ? 58 : 34);
         for (let i = 0; i < cnt; i++) {
           const a = Math.random() * Math.PI * 2, spd = 1.4 + Math.random() * (isMega ? 10 : 6);
           state.particles.push({
@@ -1849,7 +1855,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         }
 
         // 5. Flying Scorched Rock Debris Chunks with Spin & Gravity
-        const debrisCount = isMega ? 22 : 13;
+        const debrisCount = effectCount(isMega ? 22 : 13);
         for (let i = 0; i < debrisCount; i++) {
           const a = -Math.PI * 0.94 + Math.random() * Math.PI * 0.88;
           const spd = 4 + Math.random() * (isMega ? 10.5 : 7);
@@ -1862,7 +1868,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         }
 
         // 6. Rising Billowing Anime Smoke Cloud
-        for (let i = 0; i < (isMega ? 20 : 12); i++) {
+        for (let i = 0; i < effectCount(isMega ? 20 : 12); i++) {
           const a = Math.random() * Math.PI * 2, spd = 0.5 + Math.random() * 2.2;
           state.particles.push({
             type: 'smoke', x: cx + (Math.random() - 0.5) * radius * 0.5, y: cy - 4,
@@ -1883,7 +1889,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           const dx = t.x - cx, dy = (t.y - 8) - cy, dist = Math.hypot(dx, dy);
           if (dist < blastRange) {
             const factor = Math.pow(1 - dist / blastRange, 0.8);
-            const dmg = Math.max(6, Math.round(maxDmg * factor));
+            const dmg = maxDmg>0?Math.max(1, Math.round(maxDmg * factor)):0;
             applyTankDamage(t, dmg);
             const knock = (isMega ? 11 : 7) * factor;
             const ang = Math.atan2(dy - 14, dx || 0.01);
@@ -1893,10 +1899,16 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       }
 
       function applyTankDamage(tank, rawDmg, customLabel = null) {
-        if (tank.hp <= 0) return;
+        if (tank.hp <= 0 || rawDmg<=0) return;
         let dmg = rawDmg;
         if (tank.shield > 0) dmg = Math.max(2, Math.round(rawDmg * 0.6));
         if(config.mode==='p2p' && net.role==='guest')return;
+        if(state.turnFired && !customLabel){
+          const weapon=state.tanks[state.activeIdx]?.selectedWeapon||'shell';
+          const cap=SHOT_CAPS[weapon]??40;state.shotDamage ||= {};
+          const used=state.shotDamage[tank.idx]||0;dmg=Math.min(dmg,Math.max(0,cap-used));
+          if(dmg<=0)return;state.shotDamage[tank.idx]=used+dmg;
+        }
         tank.hp = Math.max(0, tank.hp - dmg);
         if(tank.idx===net.localTankIdx || config.mode!=='p2p')haptic(18);
         tank.hurtTimer = 24;
@@ -2018,7 +2030,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         if (state.hitStop > 0) { state.hitStop--; return; }
 
         // Ambient weather
-        for (const w of state.weather) {
+        for (const w of (economicQuality()?state.weather.slice(0,18):state.weather)) {
           if (config.theme === 'canyon') { w.y -= w.speed; w.x += state.wind * 1.4; if (w.y < 0) { w.y = WORLD_H; w.x = Math.random() * WORLD_W; } }
           else { w.y += w.speed; w.x += state.wind * 1.8; if (w.y > WORLD_H) { w.y = 0; w.x = Math.random() * WORLD_W; } }
           if (w.x < 0) w.x += WORLD_W; if (w.x > WORLD_W) w.x -= WORLD_W;
@@ -2192,7 +2204,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           const p = state.projectiles[i];
           p.age++;
           p.trail.push({ x: p.x, y: p.y });
-          if (p.trail.length > (p.weapon.type === 'itano' ? 24 : 14)) p.trail.shift();
+          if (p.trail.length > (economicQuality()?6:p.weapon.type === 'itano'?16:10)) p.trail.shift();
 
           if (p.fuse !== undefined) {
             if (p.attachedTank) {
@@ -2245,7 +2257,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
             for (let k = -2; k <= 2; k++) {
               state.projectiles.push({
                 x: p.x, y: p.y, vx: p.vx + k * 1.9, vy: p.vy - 1.5,
-                weapon: { id: 'mirv_sub', dmg: 26, radius: 40, type: 'shell', color: colors[k + 2] },
+                weapon: { id: 'mirv_sub', dmg: 10, radius: 40, type: 'shell', color: colors[k + 2] },
                 ownerIdx: p.ownerIdx, age: 0, trail: [], color: colors[k + 2]
               });
             }
@@ -2284,7 +2296,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
                 const dot = p.vx * norm.x + p.vy * norm.y;
                 p.vx = (p.vx - 1.85 * dot * norm.x) * 0.85;
                 p.vy = (p.vy - 1.85 * dot * norm.y) * 0.85;
-                explode(nx, ny, 34, 24, '#22d3ee', false, true);
+                explode(nx, ny, 34, 10, '#22d3ee', false, true);
                 p.x = nx + norm.x * 5; p.y = ny + norm.y * 5;
                 break;
               } else {
@@ -2400,13 +2412,13 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           return;
         }
         if (w.type === 'volcano') {
-          explode(p.x, p.y, 44, 24, '#ea580c', false);
-          for (let k = 0; k < 8; k++) {
-            const ang = -Math.PI / 2 + (k - 3.5) * 0.19;
+          explode(p.x, p.y, 40, 12, '#ea580c', false);
+          for (let k = 0; k < 4; k++) {
+            const ang = -Math.PI / 2 + (k - 1.5) * 0.23;
             const spd = 7.5 + seededRand() * 4.5;
             state.projectiles.push({
               x: p.x, y: p.y - 10, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
-              weapon: { id: 'lava', dmg: 20, radius: 32, type: 'shell', color: '#f97316' },
+              weapon: { id: 'lava', dmg: 8, radius: 32, type: 'shell', color: '#f97316' },
               ownerIdx: p.ownerIdx, age: 0, trail: [], color: '#f97316'
             });
           }
@@ -2530,7 +2542,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
 
         // Weather
         ctx.save();
-        for (const w of state.weather) {
+        for (const w of (economicQuality()?state.weather.slice(0,18):state.weather)) {
           ctx.fillStyle = config.theme === 'canyon' ? 'rgba(251,146,60,0.75)' : (config.theme === 'cyber' ? 'rgba(56,189,248,0.55)' : 'rgba(255,255,255,0.75)');
           ctx.beginPath(); ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2); ctx.fill();
         }
@@ -2555,14 +2567,14 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
 
       function drawBackdrop(vw, vh, theme) {
         ctx.save();
-        for (const st of state.stars) {
+        for (const st of (economicQuality()?state.stars.slice(0,24):state.stars)) {
           const sx = (st.x / WORLD_W) * vw, sy = (st.y / WORLD_H) * vh;
           ctx.globalAlpha = 0.35 + Math.sin(state.time * 0.05 + st.tw) * 0.35;
           ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(sx, sy, st.r, 0, Math.PI * 2); ctx.fill();
         }
         ctx.globalAlpha = 1;
 
-        if (theme.aurora) {
+        if (theme.aurora && !economicQuality()) {
           // Smooth ribbons travel past the mountain silhouettes.
           ctx.globalCompositeOperation = 'lighter';
           const drift = reducedMotion.matches ? 0 : state.time * .009;
@@ -2714,7 +2726,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       function drawHero() {
         const w = heroCanvas.clientWidth, h = heroCanvas.clientHeight;
         if (!w || !h) return;
-        const pixelRatio = Math.min(devicePixelRatio,2);
+        const pixelRatio = renderScale();
         heroCanvas.width = Math.round(w * pixelRatio); heroCanvas.height = Math.round(h * pixelRatio);
         const pen = heroCtx;
         pen.setTransform(pixelRatio,0,0,pixelRatio,0,0);
@@ -2874,6 +2886,11 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       }
 
       function drawParticle(pt) {
+        if(economicQuality()){
+          const alpha=Math.max(0,Math.min(1,pt.life/(pt.maxLife||30)));ctx.save();ctx.globalAlpha=alpha*.6;ctx.fillStyle=pt.color;ctx.strokeStyle=pt.color;
+          if(pt.type==='shockwave'){ctx.lineWidth=2;ctx.beginPath();ctx.arc(pt.x,pt.y,Math.max(1,pt.r),0,Math.PI*2);ctx.stroke();}
+          else {ctx.beginPath();ctx.arc(pt.x,pt.y,Math.max(1,Math.min(12,pt.r||3)),0,Math.PI*2);ctx.fill();}ctx.restore();return;
+        }
         ctx.save(); const a = pt.life / pt.maxLife;
         if (pt.type === 'shockwave') {
           ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = pt.color; ctx.globalAlpha = a; ctx.lineWidth = 4.5 * a;
@@ -2957,12 +2974,9 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         el('multiHealth').hidden = state.tanks.length<=2;
         el('duelHealth').hidden = state.tanks.length>2;
         if (state.tanks.length>2) {
-          el('multiHealth').replaceChildren(...state.tanks.map(t=>{
-            const chip=document.createElement('span');
-            chip.style.color=t.glow;
-            chip.textContent=(t.idx===state.activeIdx?'▸':'')+(t.idx+1)+(config.format==='teams'?' ف'+(t.team+1):'')+'·'+displayHp(t)+'%';
-            chip.title=t.name; return chip;
-          }));
+          const panel=el('multiHealth');
+          if(panel.children.length!==state.tanks.length)panel.replaceChildren(...state.tanks.map(()=>document.createElement('span')));
+          state.tanks.forEach((t,i)=>{const chip=panel.children[i];chip.style.color=t.glow;chip.textContent=(t.idx===state.activeIdx?'▸':'')+(t.idx+1)+(config.format==='teams'?' ف'+(t.team+1):'')+'·'+displayHp(t)+'%';chip.title=t.name;});
         }
         document.getElementById('p1HpFill').style.width = `${(t1.hp / t1.maxHp) * 100}%`;
         document.getElementById('p1HpText').textContent = displayHp(t1)+'%';
@@ -3269,6 +3283,14 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       });
       document.getElementById('btnBackMenu').addEventListener('click', () => { document.getElementById('gameOverModal').classList.add('hidden'); document.getElementById('setupModal').classList.remove('hidden'); });
 
+      let autoLow=false,frameAverage=16.67,frameSamples=0,lastRendered=-Infinity,lastMapTime=-Infinity;
+      function economicQuality(){return prefs.quality==='low'||(prefs.quality==='auto'&&autoLow);}
+      function renderScale(){return Math.min(window.devicePixelRatio||1,prefs.quality==='high'?2:economicQuality()?1:1.25);}
+      function effectCount(n){return Math.max(1,Math.round(n*(economicQuality()?.25:prefs.quality==='high'?1:.5)));}
+      function observeFrame(dt){
+        if(dt<=0||dt>1000)return;frameAverage=frameAverage*.95+dt*.05;frameSamples++;
+        if(prefs.quality==='auto'&&!autoLow&&frameSamples>=75&&frameAverage>23){autoLow=true;resizeCanvas();}
+      }
       const prefs=(()=>{try{return {size:100,opacity:72,move:0,fire:0,moveOffset:0,fireOffset:0,swap:false,vibration:true,quality:'auto',...JSON.parse(window.TankPreferences?TankPreferences.getControls():(localStorage.getItem('tank-controls-landscape')||'{}'))};}catch{return {size:100,opacity:72,move:0,fire:0,moveOffset:0,fireOffset:0,swap:false,vibration:true,quality:'auto'};}})();
       function haptic(ms){if(prefs.vibration && navigator.vibrate)navigator.vibrate(ms);}
       function applyControls(){
@@ -3315,8 +3337,27 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         }
         if(engineTone)engineTone.gain.gain.setTargetAtTime(moving && !sfx.muted ? .018 : 0,sfx.ctx.currentTime,.08);
       }
+      function timeoutWinner(){
+        const scores=new Map();for(const t of state.tanks)scores.set(t.team,(scores.get(t.team)||0)+Math.max(0,t.hp));
+        const order=[...scores].sort((a,b)=>b[1]-a[1]);
+        if(!order.length||(order.length>1&&Math.abs(order[0][1]-order[1][1])<.001))return null;
+        return state.tanks.find(t=>t.team===order[0][0]&&t.hp>0)||null;
+      }
+      function expireMatch(){
+        if(state.gameOver || (config.mode==='p2p'&&net.role!=='host'))return;
+        const winner=timeoutWinner(),sequence=state.turnSeq;
+        if(config.mode==='p2p'){
+          if(state.phase==='aim'&&!state.awaitingShot)sendNet({type:'ENVIRONMENT',turnSeq:sequence});
+          sendNet({type:'LAN_RESULT',turnSeq:sequence,nextIdx:state.activeIdx,done:true,timedOut:true,winnerIdx:winner?.idx??-1,wind:state.wind,round:state.round,cuts:terrainHistory,rects:terrainRects,mines:state.mines,tanks:state.tanks.map(tankPose)});
+        }
+        state.projectiles=[];state.beams=[];state.portals=[];state.blackHoles=[];state.cracklers=[];state.pendingBeam=null;state.timedOut=true;endGame(winner);
+      }
       function upgradeStep(){
         updateEngineTone();
+        if(state.running&&!state.gameOver&&Number.isFinite(state.matchDeadline)){
+          const remaining=Math.max(0,state.matchDeadline-performance.now());const seconds=Math.ceil(remaining/1000),clock=el('matchClock'),text=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
+          if(clock.textContent!==text)clock.textContent=text;if(remaining<=0)expireMatch();
+        }
         if(!state.running || state.gameOver)return;
         const authority=config.mode!=='p2p'||net.role==='host';
         if(authority && state.phase==='settle' && terrainDirty)collapseTerrain();
@@ -3332,8 +3373,8 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         if(config.mode==='p2p' && net.role==='host' && state.phase==='aim' && !state.awaitingShot && performance.now()-lastHostState>100){
           lastHostState=performance.now();sendNet({type:'HOST_STATE',turnSeq:state.turnSeq,tanks:state.tanks.map(tankPose),cuts:terrainHistory,rects:terrainRects,mines:state.mines});
         }
-        const economic=prefs.quality==='low'||(prefs.quality==='auto' && (navigator.hardwareConcurrency||8)<=4);
-        const cap=economic?100:prefs.quality==='high'?650:280;
+        const economic=economicQuality();
+        const cap=economic?64:prefs.quality==='high'?400:150;
         if(state.particles.length>cap)state.particles.splice(0,state.particles.length-cap);
         if(economic){state.shakeTime=0;state.flashAlpha=0;}
       }
@@ -3343,7 +3384,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       // ============================================================
       let rafId = null, lastFrame = performance.now(), acc = 0, lastMapFrame = -1;
       function resizeCanvas() {
-        const dpr = Math.min(window.devicePixelRatio || 1, prefs.quality==='low'?1:2);
+        const dpr = renderScale();
         canvas.width = Math.floor(window.innerWidth * dpr); canvas.height = Math.floor(window.innerHeight * dpr);
         canvas.style.width = `${window.innerWidth}px`; canvas.style.height = `${window.innerHeight}px`;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -3355,9 +3396,11 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       if ('ResizeObserver' in window) new ResizeObserver(drawHero).observe(heroCanvas);
 
       function loop(now) {
-        const dt = Math.min(60, now - lastFrame); lastFrame = now; acc += dt;
+        const elapsed=now-lastFrame;observeFrame(elapsed);
+        const dt = Math.min(100, elapsed); lastFrame = now; acc += dt;
         while (acc >= FIXED_STEP) { stepPhysics(); acc -= FIXED_STEP; }
-        render(); if (state.time !== lastMapFrame && state.time % 5 === 0) { lastMapFrame = state.time; drawMap(); } rafId = requestAnimationFrame(loop);
+        if(now-lastRendered>=(economicQuality()?32:15)){render();lastRendered=now;}
+        if(now-lastMapTime>=(economicQuality()?250:120)){drawMap();lastMapTime=now;}rafId=requestAnimationFrame(loop);
       }
 
       window.onload = () => {
