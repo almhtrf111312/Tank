@@ -587,7 +587,13 @@
     #health,#seatCount{margin-bottom:10px}
     #multiHealth{display:flex;gap:6px;justify-content:center;direction:ltr;background:#101b21a8;border-radius:7px;padding:6px;font:bold 11px system-ui}
   </style>
-</head>
+<style>
+.compact-options{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.compact-options label,#controlSettings label{display:block;font-size:13px;margin:9px 0;color:#d6e9ed}select{background:#172c34;color:white;border:1px solid #567780;border-radius:7px;padding:6px}
+.hud-bottom .corner-cluster{opacity:var(--control-opacity,.72);transform:scale(var(--control-scale,1));transform-origin:bottom center;position:relative}
+.hud-bottom .corner-cluster:first-child{bottom:var(--move-height,0vh);inset-inline-start:var(--move-offset,0vw)}.hud-bottom .corner-cluster:last-child{bottom:var(--fire-height,0vh);inset-inline-end:var(--fire-offset,0vw)}
+body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:none;position:fixed;inset:0;z-index:10000;background:#081820;color:#c7ecee;align-items:center;justify-content:center;font-size:22px;text-align:center}
+@media(orientation:portrait){#rotateNotice{display:flex}}#controlSettings .modal-card{max-width:450px}#controlSettings input[type=range]{width:55%;vertical-align:middle}#weaponDrawer{max-height:78vh;overflow:auto}
+</style></head>
 <body>
   <div id="app">
     <canvas id="gameCanvas"></canvas>
@@ -640,6 +646,7 @@
       <button class="menu-item" id="btnOpenP2P"><span>غرف اللعب</span><span>الشبكة</span></button>
       <button class="menu-item" id="btnCenter"><span>🎯 تركيز على الدبابة</span><span>وسط</span></button>
       <button class="menu-item" id="btnMute"><span>🔊 الصوت</span><span id="muteStatus">مفعّل</span></button>
+      <button class="menu-item" id="btnControls">🎮 التحكم والأداء</button>
       <button class="menu-item" id="btnOpenSetup"><span>⚙️ معركة جديدة</span><span>إعدادات</span></button>
     </div>
 
@@ -716,7 +723,7 @@
             </div>
           </div>
 
-          <label>دم الدبابة <select id="health"><option value="100">١٠٠٪</option><option value="200">٢٠٠٪</option><option value="300" selected>٣٠٠٪</option></select></label>
+          <label>دم الدبابة <select id="health"><option value="100" selected>١٠٠٪</option><option value="200">٢٠٠٪</option><option value="300">٣٠٠٪</option></select></label>
           <label id="sameCount" hidden>عدد اللاعبين <select id="seatCount"><option>2</option><option>3</option><option>4</option></select></label>
           <label id="aiOptions">مستوى الخصم
             <select id="aiLevel">
@@ -725,6 +732,11 @@
               <option value="hard">صعب</option>
             </select>
           </label>
+          <div class="setup-section compact-options">
+            <label>المنافسة <select id="battleFormat"><option value="free">كل لاعب لنفسه</option><option value="teams">فريقان 2 ضد 2</option></select></label>
+            <label>الجولات <select id="seriesLength"><option value="1">جولة واحدة</option><option value="3">بطولة من 3 جولات</option></select></label>
+            <label><input id="trajectoryOption" type="checkbox" checked> معاينة مسار القذيفة</label>
+          </div>
           <button class="primary-cta" id="btnStartGame">ابدأ المعركة</button>
 
           <div class="controls-hint">
@@ -758,6 +770,20 @@
       </div>
     </div>
 
+    <div class="modal-backdrop hidden" id="controlSettings"><div class="modal-card">
+      <div class="drawer-header"><strong>التحكم والأداء</strong><button id="closeControls" class="icon-x">✕</button></div>
+      <label>حجم الأزرار <input id="controlSize" type="range" min="80" max="130" value="100"></label>
+      <label>شفافية الأزرار <input id="controlOpacity" type="range" min="30" max="100" value="72"></label>
+      <label>ارتفاع لوحة الحركة <input id="moveHeight" type="range" min="0" max="35" value="0"></label>
+      <label>ارتفاع لوحة السلاح <input id="fireHeight" type="range" min="0" max="35" value="0"></label>
+      <label>إزاحة الحركة أفقياً <input id="moveOffset" type="range" min="0" max="20" value="0"></label>
+      <label>إزاحة الإطلاق أفقياً <input id="fireOffset" type="range" min="0" max="20" value="0"></label>
+      <label><input id="swapControls" type="checkbox"> تبديل جهتي الحركة والإطلاق</label>
+      <label><input id="vibrationOption" type="checkbox" checked> اهتزاز خفيف</label>
+      <label>الجودة <select id="qualityOption"><option value="auto">تلقائية</option><option value="low">اقتصادية</option><option value="high">عالية</option></select></label>
+      <button id="resetControls" class="secondary-btn">استعادة ترتيب الأزرار</button>
+    </div></div>
+    <div id="rotateNotice">↻ أدر الجهاز للوضع العرضي للعب</div>
     <!-- GAME OVER MODAL -->
     <div class="modal-backdrop hidden" id="gameOverModal">
       <div class="modal-card" style="max-width: 420px; text-align:center;">
@@ -817,6 +843,7 @@
       };
 
       const WEAPONS = [
+        { id:'mine',name:'لغم أرضي',icon:'◈',ammo:3,dmg:34,radius:48,type:'mine',color:'#a3e635',desc:'يبقى عند نقطة الاصطدام ويُفعّل عند اقتراب دبابة في دور لاحق.' },
         { id: 'shell', name: 'قذيفة قياسية', icon: '💥', ammo: Infinity, dmg: 38, radius: 52, type: 'shell', color: '#fbbf24', desc: 'قذيفة مدفعية متوازنة بانفجار ناري' },
         { id: 'mirv', name: 'قذيفة انشطارية', icon: '🎆', ammo: 4, dmg: 28, radius: 42, type: 'mirv', color: '#f43f5e', desc: 'تنشطر في القمة إلى 5 رؤوس ملونة!' },
         { id: 'drill', name: 'خارقة الأرض', icon: '🔩', ammo: 3, dmg: 54, radius: 64, type: 'drill', color: '#f97316', desc: 'تخترق الجبال وتحفر نفقاً ثم تنفجر بالداخل!' },
@@ -969,26 +996,29 @@
       const net = {active:false, connected:false, role:null, localTankIdx:0, lastSyncSend:0, matchStarted:false};
       const el = id => document.getElementById(id);
       let session = null, lanBackup = null, lanResult = null, lanCuts = [];
+      let terrainHistory=[],terrainRects=[],terrainDirty=false,remoteControl=null,lastHostState=0;
+      let tournament=null,matchSeed=0;
       function statusRoom(text) { el('p2pStatus').textContent = text; }
       function updateNetBadge() {
         el('netBadge').classList.toggle('visible', !!session);
         el('netBadge').textContent = session ? 'غرفة '+session.code : '';
       }
       async function api(action, data) {
-        const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2,'0')).join('');
+        const requestId = data.requestId || Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2,'0')).join('');
         const body = JSON.stringify({...data, requestId});
-        for (let attempt = 0; attempt < 2; attempt++) {
+        for (let attempt = 0; attempt < 6; attempt++) {
           let response;
+          const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),4500);
           try {
             response = await fetch('/room/' + action, {
-              method:'POST', headers:{'Content-Type':'application/json'}, body
+              method:'POST', headers:{'Content-Type':'application/json'}, body,signal:controller.signal
             });
           } catch (error) {
-            if (attempt === 1) throw Error('تعذّر الوصول للمضيف. تأكد من نفس الواي فاي.');
-            continue;
-          }
+            if (attempt === 5) throw Error('تعذّر الوصول للمضيف. تأكد من نفس الواي فاي.');
+            await new Promise(resolve=>setTimeout(resolve,500+attempt*250));continue;
+          } finally {clearTimeout(timeout);}
           const result = await response.json();
-          if (!response.ok) throw Error(result.error || 'تعذّر الاتصال بالغرفة.');
+          if (!response.ok) {const error=Error(result.error || 'تعذّر الاتصال بالغرفة.');error.permanent=true;throw error;}
           return result;
         }
       }
@@ -1014,8 +1044,14 @@
         const s=session;
         if (!s) return;
         const packet={...msg,matchId:net.lastMatchId};
-        const send = data => session===s && api('packet',{...s.auth,msg:data});
-        if (msg.type==='SYNC_TANK') {
+        const send = async data => {
+          const requestId=Array.from(crypto.getRandomValues(new Uint8Array(16)),v=>v.toString(16).padStart(2,'0')).join('');
+          while(session===s){
+            try{return await api('packet',{...s.auth,msg:data,requestId});}
+            catch(error){if(error.permanent)throw error;if(!handleRoomFailure(s,error))return;await new Promise(resolve=>setTimeout(resolve,800));}
+          }
+        };
+        if (msg.type==='CONTROL' || msg.type==='HOST_STATE') {
           s.latestPose=packet;
           if (s.poseQueued) return;
           s.poseQueued=true;
@@ -1024,12 +1060,12 @@
             s.latestPose=null;
             s.poseQueued=false;
             if (latest) return send(latest);
-          }).catch(error=>failRoom(s,error));
+          }).catch(error=>handleRoomFailure(s,error));
           return;
         }
         // A shot contains the latest pose, so queued movement can be dropped.
         s.latestPose=null;
-        s.out=s.out.then(()=>send(packet)).catch(error=>failRoom(s,error));
+        s.out=s.out.then(()=>send(packet)).catch(error=>handleRoomFailure(s,error));
       }
 
       function applyRoomEvents(s) {
@@ -1038,6 +1074,8 @@
           if (msg.type==='START') {
             Object.assign(net,{matchStarted:true,connected:true,lastMatchId:msg.matchId});
             config.mode='p2p'; config.theme=msg.theme;
+            Object.assign(config,{format:msg.format||'free',seriesLength:msg.seriesLength||1,trajectory:msg.trajectory!==false});
+            if(msg.seriesRound===1)tournament=null;else if(tournament)tournament.round=msg.seriesRound;
             startNewGame(msg.seed,msg.wind);
           } else if (evt.sender!==s.idx || msg.type==='FIRE') {
             receiveLanAction(msg);
@@ -1050,9 +1088,10 @@
         try {
           const data=await api('poll',{...s.auth,cursor:s.cursor});
           if (s!==session) return;
+          s.disconnectedAt=0;net.connected=true;updateNetBadge();
           el('roster').textContent = Array.from({length:s.count},(_,i)=>{
             const p=data.players.find(v=>v.idx===i);
-            return (i===0?'المضيف':'اللاعب '+(i+1))+' — '+(p?(p.ready?'انضم وجاهز':'انضم، بانتظار الجاهزية'):'بانتظار الانضمام');
+            return (i===0?'المضيف':'اللاعب '+(i+1))+' — '+(p?(p.connected===false?'إعادة الاتصال…':p.ready?'انضم وجاهز':'انضم، بانتظار الجاهزية'):'بانتظار الانضمام');
           }).join('\n');
           el('roomStart').disabled=data.started || data.players.length!==s.count || !data.players.every(p=>p.ready);
           el('roomReady').disabled=!!data.players.find(p=>p.idx===s.idx)?.ready;
@@ -1062,7 +1101,7 @@
             applyRoomEvents(s);
           }
           setTimeout(()=>poll(s),data.started?75:320);
-        } catch(e){failRoom(s,e);}
+        } catch(e){if(handleRoomFailure(s,e))setTimeout(()=>poll(s),800);}
       }
       async function enterRoom(action) {
         if (session || el('createRoom').disabled) return;
@@ -1070,12 +1109,12 @@
         try {
           const code=el('roomCode').value.trim().replace(/[٠-٩۰-۹]/g,ch=>String(ch.charCodeAt(0)-(ch<'۰'?0x660:0x6f0)));
           statusRoom('جارٍ الاتصال…');
-          const room=await api(action,{count:+el('slots').value,hp:+el('health').value,code});
+          const room=await api(action,{count:el('battleFormat').value==='teams'?4:+el('slots').value,hp:+el('health').value,format:el('battleFormat').value,seriesLength:+el('seriesLength').value,trajectory:el('trajectoryOption').checked,code});
           session={...room,auth:{code:room.code,token:room.token},cursor:0,events:[],out:Promise.resolve(),latestPose:null,poseQueued:false};
           Object.assign(net,{localTankIdx:room.idx,role:room.idx===0?'host':'guest',active:true});
           el('roomEntry').hidden=true; el('lobby').hidden=false;
           el('roomStart').hidden=room.idx!==0; el('roomReady').hidden=room.idx===0; el('roomStart').disabled=true;
-          statusRoom('الغرفة '+room.code+' • '+room.count+' لاعبين • الدم '+room.hp+'٪');
+          statusRoom('الغرفة '+room.code+' • '+room.count+' لاعبين • الدم '+room.hp+'٪'+(el('battleFormat').value==='teams'?' • فريقان':''));
           el('roomNumber').textContent=room.code;
           updateNetBadge(); poll(session);
         } catch(e){statusRoom(e.message);}
@@ -1088,8 +1127,27 @@
 
       function receiveLanAction(msg) {
         if (!net.matchStarted || msg.matchId !== net.lastMatchId) return;
-        if (msg.type === 'LAN_RESULT' && net.role === 'guest' && msg.turnSeq === state.turnSeq && state.turnFired) {
+        if(msg.type==='CONTROL' && net.role==='host' && msg.idx===state.activeIdx && msg.turnSeq===state.turnSeq && state.phase==='aim') {
+          remoteControl={...msg,seen:performance.now()};
+          const tank=state.tanks[msg.idx];tank.aimAngle=msg.aimAngle;
+          if(tank.ammo[msg.weaponId]>0)tank.selectedWeapon=msg.weaponId;
+          return;
+        }
+        if(msg.type==='FIRE_REQUEST' && net.role==='host' && msg.turnSeq===state.turnSeq && state.phase==='aim' && !state.turnFired){
+          const t=state.tanks[state.activeIdx];
+          remoteControl=null;state.awaitingShot=true;
+          if(t.ammo[msg.weaponId]>0)t.selectedWeapon=msg.weaponId;
+          t.aimAngle=msg.aimAngle;
+          sendNet({type:'FIRE',shotSeed:Math.floor(Math.random()*1e9),turnSeq:state.turnSeq,idx:t.idx,weaponId:t.selectedWeapon,power:msg.power,targetX:msg.targetX,...tankPose(t)});
+          return;
+        }
+        if(msg.type==='HOST_STATE' && net.role==='guest' && msg.turnSeq===state.turnSeq && state.phase==='aim'){
+          restoreTerrain(msg);msg.tanks.forEach((t,i)=>{const tank=state.tanks[i],{x,y,...rest}=t;tank.wheelPhase+=(x-(tank.targetX??tank.x))*.25;Object.assign(tank,rest,{targetX:x,targetY:y,ammo:decodeAmmo(t.ammo)});});
+          state.mines=msg.mines||[];updateHUD();return;
+        }
+        if (msg.type === 'LAN_RESULT' && net.role === 'guest' && msg.turnSeq >= state.turnSeq) {
           lanResult = msg;
+          if(state.phase==='aim' || state.phase==='gameover'){state.phase='settle';state.settleTimer=0;state.settleDeadline=0;}
           return;
         }
         if (msg.type !== 'SYNC_TANK' && msg.type !== 'FIRE') return;
@@ -1104,7 +1162,7 @@
         if (msg.type === 'SYNC_TANK') tank.wheelPhase += (msg.x - tank.x) * .25;
         if (![msg.vx,msg.vy,msg.slope,msg.hp].every(Number.isFinite) || msg.hp < 1 || msg.hp > tank.maxHp) return;
         const changedWeapon = tank.selectedWeapon !== msg.weaponId;
-        Object.assign(tank,{x:msg.x,y:msg.y,vx:msg.vx,vy:msg.vy,slope:msg.slope,hp:tank.hp,
+        Object.assign(tank,{x:msg.x,y:msg.y,targetX:msg.x,targetY:msg.y,vx:msg.vx,vy:msg.vy,slope:msg.slope,hp:tank.hp,
           aimAngle:msg.aimAngle,selectedWeapon:msg.weaponId,fuel:msg.fuel});
         document.getElementById('fuelFill').style.width = tank.fuel + '%';
         if (changedWeapon) updateWeaponHUD();
@@ -1132,20 +1190,21 @@
           }
           const result = lanResult;
           lanResult = null;
-          if (lanBackup) {
+          if (false && lanBackup) {
             tCtx.clearRect(0,0,WORLD_W,WORLD_H);
             tCtx.drawImage(lanBackup.canvas,0,0);
             solidMask.set(lanBackup.mask);
           }
           lanBackup = null;
-          for (const cut of result.cuts) carveTerrain(...cut);
+          restoreTerrain(result);state.mines=result.mines||[];
+          state.projectiles=[];state.beams=[];state.portals=[];state.blackHoles=[];state.cracklers=[];state.pendingBeam=null;
           result.tanks.forEach((snap,i) => {
             const tank = state.tanks[i];
-            Object.assign(tank,snap,{ammo:Object.fromEntries(Object.entries(snap.ammo)
+            Object.assign(tank,snap,{targetX:snap.x,targetY:snap.y,ammo:Object.fromEntries(Object.entries(snap.ammo)
               .map(([id,count]) => [id,count === null ? Infinity : count]))});
           });
           state.round = result.round;
-          state.turnSeq++;
+          state.turnSeq=result.turnSeq+1;
           if (result.done) {
             updateHUD();
             endGame(state.tanks.find(t => t.hp > 0) ?? null);
@@ -1155,13 +1214,13 @@
           if (session) applyRoomEvents(session);
           return;
         }
-        const done = survivors().length <= 1;
+        const done = battleFinished();
         const nextIdx = nextAlive();
         const turnSeq = state.turnSeq;
         if (done) endGame(state.tanks.find(t => t.hp > 0) ?? null);
         else beginTurn(nextIdx);
         sendNet({
-          type:'LAN_RESULT',turnSeq,nextIdx,done,wind:state.wind,round:state.round,cuts:lanCuts,
+          type:'LAN_RESULT',turnSeq,nextIdx,done,wind:state.wind,round:state.round,cuts:terrainHistory,rects:terrainRects,mines:state.mines,
           tanks:state.tanks.map(({x,y,vx,vy,hp,shield,slope,fuel,ammo,aimAngle,selectedWeapon}) =>
             ({x,y,vx,vy,hp,shield,slope,fuel,ammo,aimAngle,selectedWeapon}))
         });
@@ -1169,9 +1228,26 @@
       }
 
       function syncLanTank(tank) {
-        sendNet({type:'SYNC_TANK',idx:tank.idx,turnSeq:state.turnSeq,x:tank.x,y:tank.y,
-          aimAngle:tank.aimAngle,weaponId:tank.selectedWeapon,fuel:tank.fuel,
-          vx:tank.vx,vy:tank.vy,slope:tank.slope,hp:tank.hp});
+        if(net.role==='guest')sendNet({type:'CONTROL',idx:tank.idx,turnSeq:state.turnSeq,aimAngle:tank.aimAngle,weaponId:tank.selectedWeapon,keys:{...state.keys}});
+      }
+      function tankPose(t){return {x:t.x,y:t.y,vx:t.vx,vy:t.vy,hp:t.hp,shield:t.shield,slope:t.slope,fuel:t.fuel,aimAngle:t.aimAngle,weaponId:t.selectedWeapon,selectedWeapon:t.selectedWeapon,ammo:t.ammo};}
+      function decodeAmmo(ammo){return Object.fromEntries(Object.entries(ammo).map(([k,v])=>[k,v===null?Infinity:v]));}
+      function handleRoomFailure(s,error){
+        if(session!==s)return false;
+        if(['تغير الدور','انتظر دورك','المضيف يزامن الحالة'].includes(error.message))return true;
+        if(error.permanent){failRoom(s,error);return false;}
+        s.disconnectedAt ||= Date.now();net.connected=false;cancelInput();
+        statusRoom('انقطع الاتصال مؤقتاً — جارٍ إعادة الاتصال…');
+        el('netBadge').textContent='إعادة الاتصال…';
+        if(Date.now()-s.disconnectedAt>150000){failRoom(s,error);return false;}return true;
+      }
+      function restoreTerrain(snapshot){
+        const cuts=snapshot.cuts||[],rects=snapshot.rects||[];
+        // Host history includes every deletion. Apply once, even after missed turns.
+        for(let i=terrainHistory.length;i<cuts.length;i++)carveTerrain(...cuts[i]);
+        terrainHistory=cuts.slice();
+        for(let i=terrainRects.length;i<rects.length;i++)eraseTerrainRect(...rects[i],false);
+        terrainRects=rects.slice();terrainDirty=false;
       }
 
       function isLocalTurn() {
@@ -1191,7 +1267,7 @@
       const tCtx = terrainCanvas.getContext('2d');
       let solidMask = new Uint8Array(WORLD_W * WORLD_H);
 
-      const config = { mode: 'pvai', theme: 'aurora', aiLevel: 'normal' };
+      const config = { mode: 'pvai', theme: 'aurora', aiLevel: 'normal',format:'free',seriesLength:1,trajectory:true };
       let setupMode = config.mode, setupTheme = config.theme;
 
       const state = {
@@ -1322,6 +1398,7 @@
         if (config.mode === 'p2p' && net.role === 'host') {
           lanCuts.push([cx, cy, radius, glowColor]);
         }
+        if(config.mode!=='p2p' || net.role==='host'){terrainHistory.push([cx,cy,radius,glowColor]);terrainDirty=true;}
         tCtx.save(); tCtx.globalCompositeOperation = 'source-atop';
         tCtx.beginPath(); tCtx.arc(cx, cy, radius + 8, 0, Math.PI * 2);
         tCtx.fillStyle = 'rgba(10, 8, 12, 0.78)'; tCtx.fill();
@@ -1385,10 +1462,10 @@
         }
         if (config.mode !== 'p2p') closeP2PConnection();
 
-        setSeed(customSeed !== null ? customSeed : Math.floor(Math.random() * 1e9));
+        matchSeed=customSeed !== null ? customSeed : Math.floor(Math.random() * 1e9);setSeed(matchSeed);
         document.getElementById('btnResume').hidden = false;
         state.running = true; state.gameOver = false; state.phase = 'aim'; state.turnFired = false; state.turnSeq = 0;
-        lanCuts = []; lanBackup = null; lanResult = null;
+        lanCuts = []; lanBackup = null; lanResult = null;terrainHistory=[];terrainRects=[];terrainDirty=false;remoteControl=null;state.mines=[];
         state.flashAlpha = 0; state.shakeTime = 0; state.hitStop = 0;
         state.round = 1; state.projectiles = []; state.particles = []; state.beams = [];
         state.portals = []; state.blackHoles = []; state.cracklers = []; state.floatingTexts = []; state.pendingBeam = null;
@@ -1400,12 +1477,12 @@
 
         const x1 = 210 + seededRand() * 210;
         const x2 = WORLD_W - 210 - seededRand() * 210;
-        const localOnly = new Set(['itano', 'meteor', 'blackhole']);
         const makeAmmo = () => Object.fromEntries(WEAPONS.map(w => [w.id,
-          config.mode === 'p2p' && localOnly.has(w.id) ? 0 : w.ammo]));
+          w.ammo]));
 
         const network = config.mode === 'p2p';
-        const count = network ? session.count : (config.mode === 'pvp' ? +el('seatCount').value : 2);
+        const count = network ? session.count : (config.format==='teams'?4:(config.mode === 'pvp' ? +el('seatCount').value : 2));
+        if(!tournament || tournament.complete || tournament.count!==count)tournament={count,round:1,scores:Array(count).fill(0),complete:false};
         const health = network ? session.hp : +el('health').value;
         const hp = Math.round(health * HEALTH_SCALE);
         const palette = [
@@ -1413,10 +1490,11 @@
           ['الخضراء','#22c55e','#bbf7d0','#14532d'], ['الذهبية','#f6b847','#fff1ae','#854d0e']
         ];
         state.tanks = palette.slice(0,count).map(([label,color,glow,dark],idx)=>{
-          const x = x1 + idx * (x2-x1)/(count-1);
+          const position=config.format==='teams'?[0,2,1,3][idx]:idx;
+          const x = x1 + position * (x2-x1)/(count-1);
           return {idx,name:'الدبابة '+label,color,glow,dark,x,y:findSurfaceY(x)-14,vx:0,vy:0,slope:0,
-            hp,maxHp:hp,healthLabel:health,aimAngle:idx<count/2?-.65:-Math.PI+.65,fuel:100,shield:0,
-            recoil:0,wheelPhase:0,hurtTimer:0,isAI:config.mode==='pvai'&&idx===1,ammo:makeAmmo(),selectedWeapon:'shell'};
+            team:config.format==='teams'?idx%2:idx,hp,maxHp:hp,healthLabel:health,aimAngle:x<WORLD_W/2?-.65:-Math.PI+.65,fuel:100,shield:0,
+            recoil:0,wheelPhase:0,hurtTimer:0,isAI:config.mode==='pvai'&&idx!==0,ammo:makeAmmo(),selectedWeapon:'shell'};
         });
 
         document.getElementById('setupModal').classList.add('hidden');
@@ -1427,6 +1505,7 @@
         beginTurn(0, initialWind, true);
       }
 
+      function battleFinished(){return new Set(survivors().map(t=>t.team)).size<=1;}
       function survivors() { return state.tanks.filter(t=>t.hp>0); }
       function nextAlive() {
         for (let i=1;i<=state.tanks.length;i++) {
@@ -1436,12 +1515,12 @@
         return 0;
       }
       function nearestEnemy(tank) {
-        return survivors().filter(t=>t!==tank).sort((a,b)=>Math.abs(a.x-tank.x)-Math.abs(b.x-tank.x))[0];
+        return survivors().filter(t=>t.team!==tank.team).sort((a,b)=>Math.abs(a.x-tank.x)-Math.abs(b.x-tank.x))[0];
       }
       function beginTurn(idx, forcedWind = null, fromInitOrNet = false, reconciled = false) {
-        if (survivors().length <= 1) { endGame(survivors()[0]); return; }
+        if (battleFinished()) { endGame(survivors()[0]); return; }
         if (idx <= state.activeIdx && !fromInitOrNet) state.round++;
-        state.activeIdx = idx;
+        state.activeIdx = idx;remoteControl=null;
 
         const tank = state.tanks[state.activeIdx];
         if (!reconciled) {
@@ -1470,17 +1549,25 @@
       }
 
       function endGame(winner) {
+        if(state.gameOver)return;
         state.gameOver = true; state.phase = 'gameover'; updateTurnStatus(); sfx.playVictory();
         const title = document.getElementById('winnerTitle');
         const stats = document.getElementById('winnerStats');
         if (winner) {
-          title.textContent = `انتصار ${winner.name}!`;
+          title.textContent = config.format==='teams'?`فوز فريق ${winner.team===0?'الأحمر والأخضر':'الأزرق والذهبي'}!`:`انتصار ${winner.name}!`;
           title.style.color = winner.glow;
           stats.textContent = `انتهت المواجهة الملحمية في الجولة ${state.round} بدم متبقٍ ${Math.ceil(winner.hp * winner.healthLabel / winner.maxHp)}٪.`;
         } else {
           title.textContent = 'تدمير متبادل! تعادل!';
           title.style.color = '#fde047';
           stats.textContent = `تدمّرت الدبابتان معاً في الجولة ${state.round}!`;
+        }
+        if(tournament){
+          if(winner)state.tanks.filter(t=>t.team===winner.team).forEach(t=>tournament.scores[t.idx]++);
+          tournament.complete=tournament.round>=config.seriesLength;
+          const ranking=state.tanks.slice().sort((a,b)=>tournament.scores[b.idx]-tournament.scores[a.idx]||b.hp-a.hp);
+          stats.textContent+=' • '+(config.format==='teams'?'فريق الأحمر والأخضر ضد الأزرق والذهبي • ':'')+'الجولة '+tournament.round+'/'+config.seriesLength+' — '+ranking.map(t=>t.name+': '+tournament.scores[t.idx]).join(' | ');
+          el('btnPlayAgain').textContent=tournament.complete?'إعادة المباراة':'الجولة التالية';
         }
         document.getElementById('btnResume').hidden = true;
         document.getElementById('gameOverModal').classList.remove('hidden');
@@ -1489,7 +1576,7 @@
       // ============================================================
       // 6. WEAPON EXECUTION & ANIME VFX
       // ============================================================
-      function getWeapon(id) { return WEAPONS.find(w => w.id === id) || WEAPONS[0]; }
+      function getWeapon(id) { return WEAPONS.find(w => w.id === id) || WEAPONS.find(w=>w.id==='shell'); }
 
       function selectWeapon(id) {
         if (state.phase !== 'aim' || state.turnFired || !isLocalTurn()) return;
@@ -1514,7 +1601,7 @@
         if ((tank.ammo[w.id] || 0) <= 0) return;
 
         if (!fromNet && config.mode === 'p2p' && net.connected) {
-          const firePkt = { type: 'FIRE', shotSeed:Math.floor(Math.random()*1e9), turnSeq: state.turnSeq, idx: state.activeIdx, weaponId: w.id, power: powerRatio, targetX, x: tank.x, y: tank.y, aimAngle: tank.aimAngle, fuel: tank.fuel, vx:tank.vx, vy:tank.vy, slope:tank.slope, hp:tank.hp };
+          const firePkt = { type: net.role==='guest'?'FIRE_REQUEST':'FIRE', shotSeed:Math.floor(Math.random()*1e9), turnSeq: state.turnSeq, idx: state.activeIdx, weaponId: w.id, power: powerRatio, targetX, x: tank.x, y: tank.y, aimAngle: tank.aimAngle, fuel: tank.fuel, vx:tank.vx, vy:tank.vy, slope:tank.slope, hp:tank.hp };
           state.awaitingShot=true;
           cancelInput();
           updateTurnStatus();
@@ -1523,7 +1610,7 @@
         }
 
         if (config.mode === 'p2p') checkpointLanShot();
-        state.turnFired = true;
+        state.turnFired = true;haptic(12);
         if (isFinite(tank.ammo[w.id])) tank.ammo[w.id]--;
         state.charging = false; state.chargePower = 0;
         updatePowerHUD(); updateWeaponHUD(); updateTurnStatus();
@@ -1794,7 +1881,9 @@
         if (tank.hp <= 0) return;
         let dmg = rawDmg;
         if (tank.shield > 0) dmg = Math.max(2, Math.round(rawDmg * 0.6));
+        if(config.mode==='p2p' && net.role==='guest')return;
         tank.hp = Math.max(0, tank.hp - dmg);
+        if(tank.idx===net.localTankIdx || config.mode!=='p2p')haptic(18);
         tank.hurtTimer = 24;
         state.floatingTexts.push({
           x: tank.x, y: tank.y - 38,
@@ -1808,6 +1897,7 @@
       }
 
       function finishShootingPhase(frames = 68) {
+        if(config.mode==='p2p' && net.role==='host' && state.phase==='aim' && !state.turnFired)sendNet({type:'ENVIRONMENT',turnSeq:state.turnSeq});
         state.phase = 'settle';
         state.settleTimer = frames;
         state.settleDeadline = state.time + frames + 180;
@@ -1872,35 +1962,33 @@
           }
         }
         const angle = best.angle + (Math.random() - 0.5) * (hard ? 0.009 : 0.067);
-        const useShield = tank.hp < (hard ? 150 : 100) && tank.ammo.shield > 0 && best.score < (hard ? -25 : -85);
+        const useShield = tank.hp < tank.maxHp*.4 && tank.ammo.shield > 0 && best.score < (hard ? -25 : -85);
         return {timer:hard ? 42 : 52, targetAngle:side > 0 ? angle : Math.PI - angle, power:best.power,
           targetX:target.x, weapon:useShield ? 'shield' : 'shell'};
       }
 
-      function prepareAITurn() {
-        if (config.aiLevel !== 'normal') {
-          const ai = state.tanks[1];
-          state.aiState = chooseComputerShot(ai, state.tanks[0], config.aiLevel === 'hard');
-          ai.selectedWeapon = state.aiState.weapon;
-          updateWeaponHUD();
-          return;
+      function prepareAITurn(){
+        const ai=state.tanks[state.activeIdx],target=nearestEnemy(ai);if(!target)return;
+        const level=config.aiLevel,hard=level==='hard';
+        const plan=chooseComputerShot(ai,target,hard);
+        if(level==='normal'){plan.targetAngle+=(Math.random()-.5)*.13;plan.power=Math.max(.18,Math.min(1,plan.power+(Math.random()-.5)*.12));}
+        let weapon='shell',best=-Infinity;
+        if(level!=='normal'){
+          for(const id of ['shell','drill','triple','sticky','pulse']){
+            if(!(ai.ammo[id]>0))continue;
+            const w=getWeapon(id),point=traceShot(ai,w,plan.targetAngle,plan.power,target);
+            const miss=Math.hypot(target.x-point.x,target.y-6-point.y);
+            const own=Math.hypot(ai.x-point.x,ai.y-point.y);
+            const score=w.dmg*Math.max(0,1-miss/(w.radius+22))*(id==='triple'?1.7:1)-Math.max(0,w.radius-own)*2+(id==='drill'&&miss<150?7:0);
+            if(score>best){best=score;weapon=id;}
+          }
+          if(ai.ammo.kame>0 && Math.abs(target.y-ai.y)<170 && ai.hp>ai.maxHp*.25){weapon='kame';plan.targetAngle=Math.atan2(target.y-6-(ai.y-10),target.x-ai.x);}
+          if(ai.hp<ai.maxHp*.42 && ai.ammo.shield>0)weapon='shield';
+          if(ai.aiMemory && weapon==='shell' && Math.abs(ai.aiMemory.targetX-target.x)<45 && Math.abs(ai.aiMemory.originX-ai.x)<20 && Math.abs(ai.aiMemory.wind-state.wind)<.2){
+            plan.power=Math.max(.15,Math.min(1,plan.power+ai.aiMemory.error*Math.sign(target.x-ai.x)*.00008));
+          }
         }
-        const ai = state.tanks[1], player = state.tanks[0];
-        const dist = Math.hypot(player.x - ai.x, player.y - ai.y);
-        const pool = ['shell', 'mirv', 'drill', 'itano', 'plasma', 'volcano', 'meteor', 'kame', 'blackhole'];
-        const avail = pool.filter(id => (ai.ammo[id] || 0) > 0);
-        let chosen = avail[Math.floor(Math.random() * avail.length)] || 'shell';
-        if (ai.hp < 120 && ai.ammo.shield > 0 && Math.random() < 0.55) chosen = 'shield';
-        ai.selectedWeapon = chosen;
-        updateWeaponHUD();
-
-        const dx = player.x - ai.x, dy = player.y - ai.y;
-        let targetAngle = Math.atan2(dy - dist * 0.34, dx);
-        if (chosen === 'kame') targetAngle = Math.atan2(dy, dx);
-        else targetAngle += (Math.random() - 0.5) * 0.08 - state.wind * 0.09;
-
-        const power = Math.max(0.28, Math.min(0.95, dist / 950 + (Math.random() - 0.5) * 0.1));
-        state.aiState = { timer:54, targetAngle, power:chosen === 'shell' ? power * 15.8 / 23.8 : power, targetX:player.x + (Math.random() - 0.5) * 50 };
+        ai.selectedWeapon=weapon;state.aiState={...plan,weapon,targetX:target.x,timer:hard?48:65};updateWeaponHUD();
       }
 
       // ============================================================
@@ -1908,6 +1996,7 @@
       // ============================================================
       function stepPhysics() {
         state.time++;
+        upgradeStep();
         if (state.flashAlpha > 0) state.flashAlpha = Math.max(0, state.flashAlpha - 0.035);
         if (state.shakeTime > 0) state.shakeTime--;
         if (state.hitStop > 0) { state.hitStop--; return; }
@@ -1977,13 +2066,15 @@
 
         // Human Input
         const activeTank = state.tanks[state.activeIdx];
-        if (state.phase === 'aim' && !state.turnFired && activeTank && activeTank.hp > 0 && isLocalTurn() && !document.querySelector('.modal-backdrop:not(.hidden)')) {
+        if (state.phase === 'aim' && !state.turnFired && activeTank && activeTank.hp > 0 && (isLocalTurn() || (config.mode==='p2p' && net.role==='host' && state.activeIdx!==0)) && !document.querySelector('.modal-backdrop:not(.hidden)')) {
+          const driveKeys=config.mode==='p2p' && net.role==='host' && state.activeIdx!==0 ? (remoteControl && performance.now()-remoteControl.seen<450?remoteControl.keys:{}) : state.keys;
+          const canDrive=config.mode!=='p2p'||net.role==='host';
           let changed = false;
-          if (state.keys.left && activeTank.fuel > 0) { moveTank(activeTank, -1.7); changed = true; }
-          if (state.keys.right && activeTank.fuel > 0) { moveTank(activeTank, 1.7); changed = true; }
+          if (driveKeys.left && canDrive && activeTank.fuel > 0) { moveTank(activeTank, -1.7); changed = true; }
+          if (driveKeys.right && canDrive && activeTank.fuel > 0) { moveTank(activeTank, 1.7); changed = true; }
           const aimSide = Math.cos(activeTank.aimAngle) < 0 ? -1 : 1;
-          if (state.keys.up || state.keys.down) {
-            const shift = ((state.keys.down ? 1 : 0) - (state.keys.up ? 1 : 0)) * aimSide * .028;
+          if ((driveKeys.up || driveKeys.down) && isLocalTurn()) {
+            const shift = ((driveKeys.down ? 1 : 0) - (driveKeys.up ? 1 : 0)) * aimSide * .028;
             const angle = Math.atan2(Math.sin(activeTank.aimAngle),Math.cos(activeTank.aimAngle));
             const normalized = aimSide < 0 && angle > 0 ? angle - Math.PI*2 : angle;
             activeTank.aimAngle = aimSide < 0
@@ -1992,7 +2083,7 @@
             changed = true;
           }
 
-          if (changed && config.mode === 'p2p' && net.connected) {
+          if (config.mode === 'p2p' && net.connected && net.role==='guest') {
             const now = performance.now();
             const syncGap = 75;
             if (now - net.lastSyncSend > syncGap) {
@@ -2028,9 +2119,14 @@
           if (t.hp <= 0) continue;
           // The active player's device simulates driving and shares its final pose with the shot.
           const lanAim = config.mode === 'p2p' && state.phase === 'aim';
-          if (lanAim && (t !== activeTank || !isLocalTurn())) continue;
           if (t.recoil > 0) t.recoil *= 0.82;
           if (t.hurtTimer > 0) t.hurtTimer--;
+          if(config.mode==='p2p' && net.role==='guest'){
+            if(state.phase==='aim' && Number.isFinite(t.targetX)){t.x+=(t.targetX-t.x)*.65;t.y+=(t.targetY-t.y)*.65;}
+            if(t.hp<t.maxHp*.4 && state.time%12===0)state.particles.push({type:'smoke',x:t.x,y:t.y-12,vx:state.wind*.4,vy:-1,r:6,life:28,maxLife:28,color:'rgba(100,116,139,.5)'});
+            continue;
+          }
+          t.wheelPhase+=t.vx*.18;
 
           t.vy += GRAVITY;
           const nextX = Math.max(28, Math.min(WORLD_W - 28, t.x + t.vx));
@@ -2043,15 +2139,15 @@
           t.y += t.vy;
 
           const grounded = t.vy >= 0 && isSolid(t.x, t.y + 12);
-          const crumbling = grounded && !lanAim && crumbleTankSupport(t);
+          const crumbling = grounded && crumbleTankSupport(t);
           if (crumbling) anyMoving=true;
           if (grounded && !crumbling) {
             let lift = 0;
             while (isSolid(t.x, t.y + 11) && lift < 24) { t.y -= 1; lift++; }
             if (impactVy > 7.8) {
               const fallDmg = Math.min(28, Math.round((impactVy - 7.2) * 3.2));
-              if (!lanAim || t.hp > 2) {
-                applyTankDamage(t, lanAim ? Math.min(fallDmg, t.hp - 1) : fallDmg, '💥 سقوط!');
+              if (t.hp > 0) {
+                applyTankDamage(t, fallDmg, '💥 سقوط!');
               }
               if (lanAim) syncLanTank(t);
               if (t.hp <= 0 && state.phase === 'aim') finishShootingPhase(55);
@@ -2215,7 +2311,7 @@
           if (!anyMoving) state.settleTimer--;
           if (state.settleTimer <= 0 || state.time >= state.settleDeadline) {
             if (config.mode === 'p2p') finishLanTurn();
-            else if (survivors().length <= 1) endGame(state.tanks.find(t => t.hp > 0) ?? null);
+            else if (battleFinished()) endGame(state.tanks.find(t => t.hp > 0) ?? null);
             else beginTurn(nextAlive());
           }
         }
@@ -2259,6 +2355,9 @@
 
       function onProjectileImpact(p, target = null) {
         const w = p.weapon;
+        const shooter=state.tanks[p.ownerIdx],enemy=shooter&&nearestEnemy(shooter);
+        if(shooter?.isAI && enemy)shooter.aiMemory={error:enemy.x-p.x,targetX:enemy.x,originX:shooter.x,wind:state.wind};
+        if(w.type==='mine'){state.mines.push({x:p.x,y:p.y,owner:p.ownerIdx,team:state.tanks[p.ownerIdx].team,armedTurn:state.turnSeq+1});return;}
         if (w.type === 'sticky') {
           state.projectiles.push({...p, trail:[], fuse:42, attachedTank:target,
             offsetX:target ? p.x - target.x : 0, offsetY:target ? p.y - target.y : 0});
@@ -2570,6 +2669,7 @@
       }
 
       function drawTank(t) {
+        if(t.idx===0)for(const mine of state.mines||[]){ctx.fillStyle='#a3e635';ctx.beginPath();ctx.ellipse(mine.x,mine.y-3,9,4,0,0,Math.PI*2);ctx.fill();}
         const active = state.tanks[state.activeIdx] === t && state.phase === 'aim';
         if (t.shield > 0) {
           ctx.save(); ctx.translate(t.x,t.y - 4);
@@ -2632,6 +2732,7 @@
       }
 
       function drawAimGuide(t, w) {
+        if(!config.trajectory)return;
         if (w.type === 'meteor') {
           const tx = state.pointer.worldX, ty = state.pointer.worldY;
           ctx.save(); ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2.5;
@@ -2865,12 +2966,15 @@
         document.getElementById('fireLabel').textContent = state.charging ? `${pct}%` : 'إطلاق';
       }
 
+      let weaponHudKey='';
       function updateWeaponHUD() {
         const tank = state.tanks[state.activeIdx]; if (!tank) return;
         const w = getWeapon(tank.selectedWeapon), ammo = tank.ammo[w.id];
         document.getElementById('curWeaponIcon').textContent = w.icon;
         document.getElementById('curWeaponName').textContent = w.name;
         document.getElementById('curWeaponAmmo').textContent = isFinite(ammo) ? `x${ammo}` : '∞';
+        const key=tank.idx+'/'+tank.selectedWeapon+'/'+JSON.stringify(tank.ammo);
+        if(key===weaponHudKey)return;weaponHudKey=key;
         const grid = document.getElementById('weaponGrid'); grid.innerHTML = '';
         WEAPONS.forEach(item => {
           const count = tank.ammo[item.id] ?? 0;
@@ -3091,9 +3195,12 @@
         }
         config.mode = setupMode; config.theme = setupTheme;
         config.aiLevel = document.getElementById('aiLevel').value;
+        config.format=el('battleFormat').value;config.seriesLength=+el('seriesLength').value;config.trajectory=el('trajectoryOption').checked;tournament=null;
+        if(config.format==='teams'){el('seatCount').value='4';el('slots').value='4';}
         startNewGame();
       });
       document.getElementById('btnPlayAgain').addEventListener('click', () => {
+        if(tournament && !tournament.complete)tournament.round++;
         if (config.mode === 'p2p' && net.connected && net.role === 'host') {
           roomCommand('start');
         } else if (config.mode === 'p2p' && net.connected) { showToast('⏳ بانتظار المضيف لبدء جولة جديدة...'); }
@@ -3102,12 +3209,81 @@
       });
       document.getElementById('btnBackMenu').addEventListener('click', () => { document.getElementById('gameOverModal').classList.add('hidden'); document.getElementById('setupModal').classList.remove('hidden'); });
 
+      const prefs=(()=>{try{return {size:100,opacity:72,move:0,fire:0,moveOffset:0,fireOffset:0,swap:false,vibration:true,quality:'auto',...JSON.parse(window.TankPreferences?TankPreferences.getControls():(localStorage.getItem('tank-controls-landscape')||'{}'))};}catch{return {size:100,opacity:72,move:0,fire:0,moveOffset:0,fireOffset:0,swap:false,vibration:true,quality:'auto'};}})();
+      function haptic(ms){if(prefs.vibration && navigator.vibrate)navigator.vibrate(ms);}
+      function applyControls(){
+        document.documentElement.style.setProperty('--control-scale',Math.max(.8,Math.min(1.3,prefs.size/100)));
+        document.documentElement.style.setProperty('--control-opacity',Math.max(.3,Math.min(1,prefs.opacity/100)));
+        document.documentElement.style.setProperty('--move-height',prefs.move+'vh');document.documentElement.style.setProperty('--fire-height',prefs.fire+'vh');
+        document.documentElement.style.setProperty('--move-offset',(prefs.moveOffset||0)+'vw');document.documentElement.style.setProperty('--fire-offset',(prefs.fireOffset||0)+'vw');
+        document.body.classList.toggle('swap-controls',prefs.swap);
+        try{if(window.TankPreferences)TankPreferences.saveControls(JSON.stringify(prefs));else localStorage.setItem('tank-controls-landscape',JSON.stringify(prefs));}catch{}
+      }
+      function openControls(){closeAllDropdowns();cancelInput();el('controlSettings').classList.remove('hidden');}
+      el('btnControls').onclick=openControls;el('closeControls').onclick=()=>el('controlSettings').classList.add('hidden');
+      for(const [id,key,check] of [['controlSize','size'],['controlOpacity','opacity'],['moveHeight','move'],['fireHeight','fire'],['moveOffset','moveOffset'],['fireOffset','fireOffset'],['swapControls','swap',true],['vibrationOption','vibration',true],['qualityOption','quality']]){
+        const input=el(id);if(check)input.checked=prefs[key];else input.value=prefs[key];
+        input.oninput=()=>{prefs[key]=check?input.checked:key==='quality'?input.value:+input.value;applyControls();if(key==='quality')resizeCanvas();};
+      }
+      el('resetControls').onclick=()=>{Object.assign(prefs,{size:100,opacity:72,move:0,fire:0,moveOffset:0,fireOffset:0,swap:false});applyControls();for(const [id,key] of [['controlSize','size'],['controlOpacity','opacity'],['moveHeight','move'],['fireHeight','fire'],['moveOffset','moveOffset'],['fireOffset','fireOffset']])el(id).value=prefs[key];el('swapControls').checked=false;};
+      applyControls();
+      function eraseTerrainRect(x,y,w,h,record=true){
+        tCtx.clearRect(x,y,w,h);
+        for(let row=y;row<Math.min(WORLD_H,y+h);row++)solidMask.fill(0,row*WORLD_W+x,row*WORLD_W+Math.min(WORLD_W,x+w));
+        if(record)terrainRects.push([x,y,w,h]);
+      }
+      function collapseTerrain(){
+        if(!terrainDirty || (config.mode==='p2p' && net.role==='guest'))return;terrainDirty=false;
+        const cell=8,cols=WORLD_W/cell,rows=Math.ceil(WORLD_H/cell),grid=new Uint8Array(cols*rows),seen=new Uint8Array(cols*rows),queue=new Int32Array(cols*rows);let head=0,tail=0;
+        for(let gy=0;gy<rows;gy++)for(let gx=0;gx<cols;gx++){
+          let count=0;for(let y=gy*cell;y<Math.min(WORLD_H,(gy+1)*cell);y+=2)for(let x=gx*cell;x<(gx+1)*cell;x+=2)count+=solidMask[y*WORLD_W+x];
+          grid[gy*cols+gx]=count>0?1:0;
+        }
+        for(let x=0;x<cols;x++){const i=(rows-1)*cols+x;if(grid[i]){seen[i]=1;queue[tail++]=i;}}
+        while(head<tail){const i=queue[head++],x=i%cols,y=Math.floor(i/cols);for(const n of [x>0?i-1:-1,x<cols-1?i+1:-1,y>0?i-cols:-1,y<rows-1?i+cols:-1])if(n>=0&&grid[n]&&!seen[n]){seen[n]=1;queue[tail++]=n;}}
+        let removed=0;for(let gy=0;gy<rows;gy++)for(let gx=0;gx<cols;){
+          const i=gy*cols+gx;if(!grid[i]||seen[i]){gx++;continue;}const start=gx;while(gx<cols&&grid[gy*cols+gx]&&!seen[gy*cols+gx])gx++;
+          eraseTerrainRect(start*cell,gy*cell,(gx-start)*cell,Math.min(cell,WORLD_H-gy*cell));removed++;
+        }
+        if(removed)showToast('انهارت الأرض غير المدعومة');
+      }
+      let engineTone=null;
+      function updateEngineTone(){
+        const moving=state.running && !state.gameOver && state.phase==='aim' && Object.values(state.keys).some(Boolean) && isLocalTurn();
+        if(!engineTone && moving && sfx.ctx && !sfx.muted){
+          const oscillator=sfx.ctx.createOscillator(),gain=sfx.ctx.createGain();oscillator.type='triangle';oscillator.frequency.value=48;gain.gain.value=0;oscillator.connect(gain);gain.connect(sfx.ctx.destination);oscillator.start();engineTone={oscillator,gain};
+        }
+        if(engineTone)engineTone.gain.gain.setTargetAtTime(moving && !sfx.muted ? .018 : 0,sfx.ctx.currentTime,.08);
+      }
+      function upgradeStep(){
+        updateEngineTone();
+        if(!state.running || state.gameOver)return;
+        const authority=config.mode!=='p2p'||net.role==='host';
+        if(authority && state.phase==='settle' && terrainDirty)collapseTerrain();
+        if(authority && state.phase==='aim')for(let i=(state.mines||[]).length-1;i>=0;i--){
+          const mine=state.mines[i];if(state.turnSeq<mine.armedTurn)continue;
+          mine.y=Math.min(WORLD_H-8,mine.y+3);if(isSolid(mine.x,mine.y))mine.y-=3;
+          if(state.tanks.some(t=>t.hp>0&&Math.hypot(t.x-mine.x,t.y-mine.y)<38)){
+            state.mines.splice(i,1);const w=getWeapon('mine');explode(mine.x,mine.y,w.radius,w.dmg,w.color);finishShootingPhase(45);
+            break;
+
+          }
+        }
+        if(config.mode==='p2p' && net.role==='host' && state.phase==='aim' && !state.awaitingShot && performance.now()-lastHostState>100){
+          lastHostState=performance.now();sendNet({type:'HOST_STATE',turnSeq:state.turnSeq,tanks:state.tanks.map(tankPose),cuts:terrainHistory,rects:terrainRects,mines:state.mines});
+        }
+        const economic=prefs.quality==='low'||(prefs.quality==='auto' && (navigator.hardwareConcurrency||8)<=4);
+        const cap=economic?100:prefs.quality==='high'?650:280;
+        if(state.particles.length>cap)state.particles.splice(0,state.particles.length-cap);
+        if(economic){state.shakeTime=0;state.flashAlpha=0;}
+      }
+
       // ============================================================
       // 11. RESIZE & MAIN LOOP
       // ============================================================
       let rafId = null, lastFrame = performance.now(), acc = 0, lastMapFrame = -1;
       function resizeCanvas() {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const dpr = Math.min(window.devicePixelRatio || 1, prefs.quality==='low'?1:2);
         canvas.width = Math.floor(window.innerWidth * dpr); canvas.height = Math.floor(window.innerHeight * dpr);
         canvas.style.width = `${window.innerWidth}px`; canvas.style.height = `${window.innerHeight}px`;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

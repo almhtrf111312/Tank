@@ -66,18 +66,20 @@ public final class RoomServerTest {
                         "power", .75, "shotSeed", 123, "weaponId", "shell");
                 int other = (i + 1) % count;
                 final int actor = i;
-                rejected(() -> engine.call("packet", auth(players.get(other), "msg", fire)));
-                Map<String, Object> request = auth(players.get(i), "msg", fire, "requestId", "fire-" + i);
+                rejected(() -> engine.call("packet", auth(players.get(1), "msg", fire)));
+                Map<String,Object> control=Json.object("type","CONTROL","idx",i,"turnSeq",i,"matchId",match,"aimAngle",-.8,"weaponId","shell","keys",Json.object("left",true));
+                engine.call("packet",auth(players.get(i),"msg",control));
+                Map<String, Object> request = auth(host, "msg", fire, "requestId", "fire-" + i);
                 engine.call("packet", request);
                 engine.call("packet", request);
-                rejected(() -> engine.call("packet", auth(players.get(actor), "msg", fire)));
+                rejected(() -> engine.call("packet", auth(host, "msg", fire)));
                 Map<String, Object> result = Json.object("type", "LAN_RESULT", "turnSeq", i, "matchId", match,
                         "nextIdx", other, "done", i == count - 1, "tanks", Collections.nCopies(count, Json.object()));
                 rejected(() -> engine.call("packet", auth(players.get(1), "msg", result)));
                 engine.call("packet", auth(host, "msg", result));
             }
             poll = Json.map(engine.call("poll", auth(host, "cursor", 0)));
-            check(((List<?>) poll.get("events")).size() == 1 + count * 2, "Ordered events, duplicate fire removed");
+            check(((List<?>) poll.get("events")).size() == 1 + count * 3, "Ordered events, duplicate fire removed");
             engine.call("start", auth(host, "theme", "cyber"));
             engine.call("leave", auth(players.get(1)));
             check(engine.code().isEmpty(), "Leaving live match closes room");
@@ -100,8 +102,29 @@ public final class RoomServerTest {
         AtomicLong clock = new AtomicLong();
         RoomEngine expiring = new RoomEngine(clock::get);
         Map<String, Object> expired = Json.map(expiring.call("create", Json.object("count", 2, "hp", 100)));
-        clock.set(65_000);
+        clock.set(185_000);
         rejected(() -> expiring.call("poll", auth(expired, "cursor", 0)));
+
+        AtomicLong resumeClock=new AtomicLong();
+        RoomEngine resumable=new RoomEngine(resumeClock::get);
+        rejected(()->resumable.call("create",Json.object("count",2,"hp",100,"format","teams")));
+        Map<String,Object> resumeHost=Json.map(resumable.call("create",Json.object("count",4,"hp",100,"format","teams","seriesLength",3,"trajectory",false)));
+        List<Map<String,Object>> resumePlayers=new ArrayList<>();resumePlayers.add(resumeHost);
+        for(int i=1;i<4;i++){Map<String,Object> g=Json.map(resumable.call("join",Json.object("code",resumeHost.get("code"))));resumable.call("ready",auth(g));resumePlayers.add(g);}
+        resumable.call("start",auth(resumeHost,"theme","aurora"));
+        resumeClock.set(65000);
+        Map<String,Object> resumed=Json.map(resumable.call("poll",auth(resumePlayers.get(1),"cursor",0)));
+        check(Boolean.TRUE.equals(resumed.get("started")),"Reconnect after 65 seconds keeps the match");
+        Map<String,Object> startEvent=Json.map(((List<?>)resumed.get("events")).get(0));
+        Map<String,Object> settings=Json.map(startEvent.get("msg"));
+        check(Json.text(settings,"format").equals("teams") && Json.number(settings,"seriesLength")==3 && Boolean.FALSE.equals(settings.get("trajectory")),"Host room settings shared");
+        Map<String,Object> world=Json.object("type","HOST_STATE","turnSeq",0,"matchId",settings.get("matchId"),"tanks",Collections.nCopies(4,Json.object()));
+        rejected(()->resumable.call("packet",auth(resumePlayers.get(1),"msg",world)));
+        resumable.call("packet",auth(resumeHost,"msg",world));
+        Map<String,Object> environmental=Json.object("type","ENVIRONMENT","turnSeq",0,"matchId",settings.get("matchId"));
+        rejected(()->resumable.call("packet",auth(resumePlayers.get(1),"msg",environmental)));
+        resumable.call("packet",auth(resumeHost,"msg",environmental));
+        resumable.call("packet",auth(resumeHost,"msg",Json.object("type","LAN_RESULT","turnSeq",0,"matchId",settings.get("matchId"),"nextIdx",1,"done",false,"tanks",Collections.nCopies(4,Json.object()))));
 
         RoomEngine httpEngine = new RoomEngine();
         try (LocalHttpServer server = new LocalHttpServer((method, path, headers, body, local) -> {

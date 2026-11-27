@@ -20,7 +20,8 @@ final class RoomEngine {
     }
     private static final class Room {
         String code, match = "";
-        int count, hp, cursor, turn, sequence;
+        int count, hp, cursor, turn, sequence, seriesLength = 1, seriesRound;
+        String format = "free"; boolean trajectory = true;
         boolean started, fired, done;
         long seen;
         final Map<String, Player> players = new LinkedHashMap<>();
@@ -51,21 +52,33 @@ final class RoomEngine {
             require(room == null, "أغلق الغرفة الحالية أولًا");
             int count = Json.number(data, "count"), hp = Json.number(data, "hp");
             require(count >= 2 && count <= 4 && Arrays.asList(100, 200, 300).contains(hp), "خيارات غرفة غير صالحة");
+            String requestedFormat = Json.text(data,"format");
+            require(requestedFormat.isEmpty() || requestedFormat.equals("free") || requestedFormat.equals("teams"), "نمط غير صالح");
+            require(!requestedFormat.equals("teams") || count == 4, "الفرق تحتاج أربعة لاعبين");
+            int requestedSeries = data.containsKey("seriesLength") ? Json.number(data,"seriesLength") : 1;
+            require(requestedSeries == 1 || requestedSeries == 3, "عدد جولات غير صالح");
             room = new Room();
             room.code = Integer.toString(1000 + random.nextInt(9000));
             room.count = count;
             room.hp = hp;
+            String format = Json.text(data, "format");
+            require(format.isEmpty() || format.equals("free") || format.equals("teams"), "نمط غير صالح");
+            require(!format.equals("teams") || count == 4, "الفرق تحتاج أربعة لاعبين");
+            room.format = format.isEmpty() ? "free" : format;
+            room.seriesLength = data.containsKey("seriesLength") ? Json.number(data,"seriesLength") : 1;
+            require(room.seriesLength == 1 || room.seriesLength == 3, "عدد جولات غير صالح");
+            room.trajectory = !Boolean.FALSE.equals(data.get("trajectory"));
             room.seen = now;
             return join(now);
         }
         require(room != null && room.code.equals(Json.text(data, "code")), "الغرفة غير موجودة");
-        if (now - room.seen >= 90_000) {
+        if (now - room.seen >= 240_000) {
             clear();
             throw new IllegalArgumentException("انتهت جلسة الغرفة");
         }
         for (Iterator<Map.Entry<String, Player>> it = room.players.entrySet().iterator(); it.hasNext();) {
             Player p = it.next().getValue();
-            if (now - p.seen < 60_000) continue;
+            if (now - p.seen < 180_000) continue;
             if (room.started || p.index == 0) {
                 clear();
                 throw new IllegalArgumentException("انقطع اتصال أحد اللاعبين. أنشئ غرفة جديدة");
@@ -87,7 +100,7 @@ final class RoomEngine {
                 require(room.events.isEmpty() || cursor >= Json.number(room.events.peekFirst(), "id") - 1,
                         "انقطع التزامن. أنشئ غرفة جديدة");
                 List<Object> roster = new ArrayList<>(), events = new ArrayList<>();
-                for (Player p : room.players.values()) roster.add(Json.object("idx", p.index, "ready", p.ready));
+                for (Player p : room.players.values()) roster.add(Json.object("idx", p.index, "ready", p.ready, "connected", now - p.seen < 8000));
                 for (Map<String, Object> e : room.events) if (Json.number(e, "id") > cursor) events.add(e);
                 return Json.object("players", roster, "events", events, "started", room.started);
             case "ready":
@@ -99,12 +112,13 @@ final class RoomEngine {
                         && room.players.values().stream().allMatch(p -> p.ready), "بانتظار اكتمال اللاعبين والجاهزية");
                 String theme = Json.text(data, "theme");
                 require(Arrays.asList("aurora", "canyon", "cyber").contains(theme), "ساحة غير صالحة");
+                room.seriesRound = room.seriesRound >= room.seriesLength ? 1 : room.seriesRound + 1;
                 room.started = true;
                 room.fired = room.done = false;
                 room.turn = room.sequence = 0;
                 room.match = token();
                 emit(index, Json.object("type", "START", "seed", random.nextInt(1_000_000_000),
-                        "wind", 0, "theme", theme, "matchId", room.match));
+                        "wind", 0, "theme", theme, "matchId", room.match,"format",room.format,"seriesLength",room.seriesLength,"seriesRound",room.seriesRound,"trajectory",room.trajectory));
                 break;
             case "packet":
                 packet(index, Json.map(data.get("msg")));
@@ -132,7 +146,20 @@ final class RoomEngine {
         require(room.started && !room.done && room.match.equals(Json.text(msg, "matchId"))
                 && room.sequence == Json.number(msg, "turnSeq"), "تغير الدور");
         String type = Json.text(msg, "type");
-        if (type.equals("LAN_RESULT")) {
+        if (type.equals("HOST_STATE")) {
+            require(index == 0 && !room.fired && msg.get("tanks") instanceof List && ((List<?>) msg.get("tanks")).size() == room.count, "المضيف يزامن الحالة");
+        } else if (type.equals("CONTROL") || type.equals("FIRE_REQUEST")) {
+            require(index == room.turn && index == Json.number(msg,"idx") && !room.fired, "انتظر دورك");
+            require(msg.get("aimAngle") instanceof Number && Double.isFinite(((Number)msg.get("aimAngle")).doubleValue()), "زاوية غير صالحة");
+            if(type.equals("CONTROL")) require(msg.get("keys") instanceof Map, "تحكم غير صالح");
+            else {
+                require(msg.get("power") instanceof Number, "قوة غير صالحة");
+                double power=((Number)msg.get("power")).doubleValue();
+                require(Double.isFinite(power) && power>=0 && power<=1,"قوة غير صالحة");
+            }
+        } else if (type.equals("ENVIRONMENT")) {
+            require(index == 0 && !room.fired,"المضيف يعتمد تغير الأرض");room.fired=true;
+        } else if (type.equals("LAN_RESULT")) {
             require(index == 0 && room.fired, "المضيف يعتمد نتيجة الضربة");
             Object tanks = msg.get("tanks");
             require(tanks instanceof List && ((List<?>) tanks).size() == room.count, "نتيجة غير صالحة");
@@ -144,7 +171,7 @@ final class RoomEngine {
             room.done = (Boolean) msg.get("done");
         } else {
             require((type.equals("FIRE") || type.equals("SYNC_TANK"))
-                    && !room.fired && index == room.turn && index == Json.number(msg, "idx"), "انتظر دورك");
+                    && !room.fired && index == 0 && room.turn == Json.number(msg, "idx"), "انتظر دورك");
             for (String key : new String[]{"x", "y", "hp", "fuel", "aimAngle", "vx", "vy", "slope"}) {
                 require(msg.get(key) instanceof Number && Double.isFinite(((Number) msg.get(key)).doubleValue()), "حركة غير صالحة");
             }
@@ -164,6 +191,6 @@ final class RoomEngine {
 
     private void emit(int index, Map<String, Object> msg) {
         room.events.addLast(Json.object("id", ++room.cursor, "sender", index, "msg", msg));
-        if (room.events.size() > 1800) room.events.removeFirst();
+        if (room.events.size() > 12000) room.events.removeFirst();
     }
 }

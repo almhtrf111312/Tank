@@ -56,3 +56,15 @@ bash tests/run.sh
 ```bash
 gradle :app:assembleRelease :app:lintRelease
 ```
+
+## 1.1.0 — Landscape arena update
+
+- Android opens in sensor landscape only. Default health is 100%.
+- The host simulates all tank movement and approves shots, damage and terrain. Guests send controls, receive smoothed positions and reconcile cumulative terrain history after delayed results.
+- Transient transport failures retry the same request ID; sessions survive short interruptions (up to 150 seconds of client retries, server stale-player expiry 180 seconds). Keep the host app open. Closing/restarting the host still ends the room.
+- Four-player teams pair red/green against blue/gold. Three-round tournaments keep scores, show rankings and support rematches with the same players. Room settings include trajectory preview visibility.
+- Unsupported terrain islands collapse; narrow supports crumble under tanks. A persistent mine arms on the next turn. Shields and drilling shells remain available, including LAN play.
+- Adjustable control size, opacity, horizontal/vertical offsets and swapped sides are saved in Android preferences. Quality settings limit visual effects without changing physics; vibration can be disabled. Engine sound, tread motion and damage smoke accompany movement and damage.
+- AI uses trajectory search, weapon/repair choices and previous-shot correction, with distinct aiming error by difficulty.
+
+Validation: `bash tests/run.sh` and `npm ci --prefix tests --ignore-scripts && python3 tests/run-game.py`. The latter runs four isolated game clients against the actual Java HTTP server and exercises authoritative movement, delayed/lost packet replies, damage/terrain reconciliation, teams, tournament results, terrain collapse, mines, AI and rendering. Android Wi-Fi discovery and physical-device interactions still need device testing.

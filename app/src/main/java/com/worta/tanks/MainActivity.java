@@ -59,6 +59,7 @@ public final class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient());
+        web.addJavascriptInterface(new ControlPreferences(), "TankPreferences");
         setContentView(web);
         web.loadUrl("http://127.0.0.1:" + server.port() + "/");
     }
@@ -93,7 +94,13 @@ public final class MainActivity extends Activity {
         }
         Discovery.Endpoint target = host;
         if (target != null && local) {
-            LocalHttpServer.Response response = forward(target, path, body);
+            LocalHttpServer.Response response;
+            try { response = forward(target, path, body); }
+            catch (IOException disconnected) {
+                // Router address changes can be recovered using the same four-digit room and token.
+                host = discovery.find(Json.text(data, "code"));
+                response = forward(host, path, body);
+            }
             if (action.equals("leave")) host = null;
             return response;
         }
@@ -120,6 +127,16 @@ public final class MainActivity extends Activity {
                 return new LocalHttpServer.Response(status, "application/json; charset=utf-8", read(input));
             }
         } finally { connection.disconnect(); }
+    }
+
+    public final class ControlPreferences {
+        @JavascriptInterface public String getControls() {
+            return getSharedPreferences("tank-settings", MODE_PRIVATE).getString("controls-landscape", "{}");
+        }
+        @JavascriptInterface public void saveControls(String value) {
+            if (value != null && value.length() <= 4096)
+                getSharedPreferences("tank-settings", MODE_PRIVATE).edit().putString("controls-landscape", value).apply();
+        }
     }
 
     private static byte[] read(InputStream input) throws IOException {

@@ -7,3 +7,8 @@ local.properties
 signing/
 *.jks
 *.keystore
+
+node_modules/
+*.p12
+*.pfx
+tests/dom.json
