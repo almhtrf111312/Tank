@@ -68,19 +68,23 @@ public final class MainActivity extends Activity {
                                             byte[] body, boolean local) throws Exception {
         if (method.equals("GET") && path.equals("/") && local)
             return new LocalHttpServer.Response(200, "text/html; charset=utf-8", page);
-        if (!method.equals("POST") || !path.matches("/room/(create|join|poll|ready|start|packet|leave)"))
+        if (!method.equals("POST") || !path.matches("/room/(create|join|poll|ready|start|packet|leave|discover|team|decision)"))
             return LocalHttpServer.Response.json(404, Json.object("error", "طلب غير موجود"));
         String origin = headers.get("origin");
         if (origin != null && !origin.equals("http://127.0.0.1:" + server.port()))
             return LocalHttpServer.Response.json(403, Json.object("error", "مصدر غير مسموح"));
         String action = path.substring("/room/".length());
         Map<String, Object> data = Json.map(Json.parse(new String(body, StandardCharsets.UTF_8)));
+        if(action.equals("discover")) {
+            if(!local)return LocalHttpServer.Response.json(403,Json.object("error","البحث من الجهاز فقط"));
+            return LocalHttpServer.Response.json(200,Json.object("rooms",discovery.rooms()));
+        }
         if (action.equals("create")) {
             if (!local) return LocalHttpServer.Response.json(403, Json.object("error", "المضيف ينشئ الغرفة"));
             host = null;
             Object result = engine.call(action, data);
             try {
-                discovery.advertise(engine.code(), server.port());
+                discovery.advertise(engine.code(), engine.name(), server.port());
             } catch (Exception failed) {
                 engine.clear();
                 discovery.unadvertise();

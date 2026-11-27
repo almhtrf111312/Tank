@@ -54,7 +54,7 @@ public final class RoomServerTest {
             }
             rejected(() -> engine.call("join", Json.object("code", host.get("code"))));
             rejected(() -> engine.call("start", auth(host, "theme", "aurora")));
-            for (Map<String, Object> p : players) engine.call("ready", auth(p));
+            for (Map<String, Object> p : players) {if(Json.number(p,"idx")!=0)engine.call("decision",auth(host,"target",p.get("idx"),"accept",true));engine.call("ready", auth(p));}
             rejected(() -> engine.call("start", auth(players.get(1), "theme", "aurora")));
             engine.call("start", auth(host, "theme", "aurora"));
             Map<String, Object> poll = Json.map(engine.call("poll", auth(host, "cursor", 0)));
@@ -107,10 +107,10 @@ public final class RoomServerTest {
 
         AtomicLong resumeClock=new AtomicLong();
         RoomEngine resumable=new RoomEngine(resumeClock::get);
-        rejected(()->resumable.call("create",Json.object("count",2,"hp",100,"format","teams")));
+
         Map<String,Object> resumeHost=Json.map(resumable.call("create",Json.object("count",4,"hp",100,"format","teams","seriesLength",3,"trajectory",false)));
         List<Map<String,Object>> resumePlayers=new ArrayList<>();resumePlayers.add(resumeHost);
-        for(int i=1;i<4;i++){Map<String,Object> g=Json.map(resumable.call("join",Json.object("code",resumeHost.get("code"))));resumable.call("ready",auth(g));resumePlayers.add(g);}
+        for(int i=1;i<4;i++){Map<String,Object> g=Json.map(resumable.call("join",Json.object("code",resumeHost.get("code"))));resumable.call("decision",auth(resumeHost,"target",g.get("idx"),"accept",true));resumable.call("team",auth(g,"team",i%2));resumable.call("ready",auth(g));resumePlayers.add(g);}
         resumable.call("start",auth(resumeHost,"theme","aurora"));
         resumeClock.set(65000);
         Map<String,Object> resumed=Json.map(resumable.call("poll",auth(resumePlayers.get(1),"cursor",0)));
@@ -126,6 +126,32 @@ public final class RoomServerTest {
         resumable.call("packet",auth(resumeHost,"msg",environmental));
         resumable.call("packet",auth(resumeHost,"msg",Json.object("type","LAN_RESULT","turnSeq",0,"matchId",settings.get("matchId"),"nextIdx",1,"done",false,"tanks",Collections.nCopies(4,Json.object()))));
 
+        RoomEngine lobby=new RoomEngine();
+        Map<String,Object> lh=Json.map(lobby.call("create",Json.object("count",3,"hp",100,"format","teams","roomName","غرفة الأصدقاء","playerName","Host")));
+        check(Json.text(lh,"name").equals("غرفة الأصدقاء"),"Named room");
+        Map<String,Object> lg1=Json.map(lobby.call("join",Json.object("code",lh.get("code"),"playerName","Guest One")));
+        rejected(()->lobby.call("ready",auth(lg1)));
+        rejected(()->lobby.call("decision",auth(lg1,"target",0,"accept",false)));
+        lobby.call("decision",auth(lh,"target",lg1.get("idx"),"accept",false));
+        rejected(()->lobby.call("poll",auth(lg1,"cursor",0)));
+        Map<String,Object> lg2=Json.map(lobby.call("join",Json.object("code",lh.get("code"),"playerName","Guest Two")));
+        lobby.call("decision",auth(lh,"target",lg2.get("idx"),"accept",true));
+        rejected(()->lobby.call("ready",auth(lg2)));
+        lobby.call("team",auth(lg2,"team",0));lobby.call("ready",auth(lg2));
+        Map<String,Object> lg3=Json.map(lobby.call("join",Json.object("code",lh.get("code"),"playerName","Guest Three")));
+        lobby.call("decision",auth(lh,"target",lg3.get("idx"),"accept",true));
+        rejected(()->lobby.call("team",auth(lg3,"team",0)));
+        lobby.call("team",auth(lg3,"team",1));lobby.call("ready",auth(lg3));
+        lobby.call("start",auth(lh,"theme","aurora"));
+        Map<String,Object> lp=Json.map(lobby.call("poll",auth(lh,"cursor",0)));
+        Map<String,Object> ls=Json.map(Json.map(((List<?>)lp.get("events")).get(0)).get("msg"));
+        List<?> members=(List<?>)ls.get("players");check(Json.number(Json.map(members.get(1)),"team")==0 && Json.number(Json.map(members.get(2)),"team")==1,"Explicit 2 versus 1 teams");
+        Map<String,Object> health=Json.object("type","HEALTH_EVENT","matchId",ls.get("matchId"),"turnSeq",0,"idx",1,"hp",55,"delta",28);
+        rejected(()->lobby.call("packet",auth(lg2,"msg",health)));
+        lobby.call("packet",auth(lh,"msg",health,"requestId","health-hit"));lobby.call("packet",auth(lh,"msg",health,"requestId","health-hit"));
+        lp=Json.map(lobby.call("poll",auth(lg3,"cursor",1)));
+        check(((List<?>)lp.get("events")).size()==1,"Immediate damage event delivered once before turn end");
+
         RoomEngine httpEngine = new RoomEngine();
         try (LocalHttpServer server = new LocalHttpServer((method, path, headers, body, local) -> {
             check(local, "Loopback test");
@@ -135,11 +161,12 @@ public final class RoomServerTest {
             server.start();
             Map<String, Object> room = http(server, "create", Json.object("count", 2, "hp", 100));
             Map<String, Object> guest = http(server, "join", Json.object("code", room.get("code")));
+            http(server,"decision",auth(room,"target",guest.get("idx"),"accept",true));
             http(server, "ready", auth(guest));
             http(server, "start", auth(room, "theme", "canyon"));
             Map<String, Object> result = http(server, "poll", auth(guest, "cursor", 0));
             check(((List<?>) result.get("events")).size() == 1, "Real HTTP room request");
         }
-        System.out.println("PASS JSON, 2/3/4 players, HP, readiness, concurrent joins, duplicate requests, turn authority, rematch, expiry, native HTTP.");
+        System.out.println("PASS named rooms, host admission/rejection, explicit 2-versus-1 teams, team capacity, immediate health events, 2/3/4 players, duplicate requests, turn authority, rematch, expiry and native HTTP.");
     }
 }

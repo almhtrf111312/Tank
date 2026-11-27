@@ -16,6 +16,7 @@ final class Discovery implements AutoCloseable {
     static final class Endpoint {
         final InetAddress address;
         final int port;
+        String name;
         Endpoint(InetAddress address, int port) { this.address = address; this.port = port; }
     }
     private final NsdManager manager;
@@ -59,7 +60,10 @@ final class Discovery implements AutoCloseable {
             @Override public void onServiceResolved(NsdServiceInfo service) {
                 if (service.getHost() != null) {
                     synchronized (found) {
-                        found.put(service.getServiceName(), new Endpoint(service.getHost(), service.getPort()));
+                        Endpoint endpoint=new Endpoint(service.getHost(),service.getPort());
+                        byte[] label=service.getAttributes().get("roomName");
+                        endpoint.name=label==null?"غرفة الدبابات":new String(label,java.nio.charset.StandardCharsets.UTF_8);
+                        found.put(service.getServiceName(), endpoint);
                         found.notifyAll();
                     }
                 }
@@ -83,7 +87,14 @@ final class Discovery implements AutoCloseable {
         }
     }
 
-    void advertise(String code, int port) throws Exception {
+    List<Object> rooms() {
+        List<Object> rooms=new ArrayList<>();
+        synchronized(found){for(Map.Entry<String,Endpoint> entry:found.entrySet())
+            rooms.add(Json.object("code",entry.getKey().substring(6),"name",entry.getValue().name));}
+        return rooms;
+    }
+
+    void advertise(String code, String name, int port) throws Exception {
         CompletableFuture<Void> ready = new CompletableFuture<>();
         main.post(() -> {
             if (closed) { ready.completeExceptionally(new IOException("أُغلقت الشبكة")); return; }
@@ -92,6 +103,7 @@ final class Discovery implements AutoCloseable {
             service.setServiceName("Worta-" + code);
             service.setServiceType(TYPE);
             service.setPort(port);
+            service.setAttribute("roomName",name);
             registration = new NsdManager.RegistrationListener() {
                 @Override public void onServiceRegistered(NsdServiceInfo info) {
                     if (!info.getServiceName().equals("Worta-" + code))

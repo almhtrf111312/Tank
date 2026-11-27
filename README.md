@@ -68,3 +68,12 @@ gradle :app:assembleRelease :app:lintRelease
 - AI uses trajectory search, weapon/repair choices and previous-shot correction, with distinct aiming error by difficulty.
 
 Validation: `bash tests/run.sh` and `npm ci --prefix tests --ignore-scripts && python3 tests/run-game.py`. The latter runs four isolated game clients against the actual Java HTTP server and exercises authoritative movement, delayed/lost packet replies, damage/terrain reconciliation, teams, tournament results, terrain collapse, mines, AI and rendering. Android Wi-Fi discovery and physical-device interactions still need device testing.
+
+## 1.1.1 — Named lobbies, explicit teams and live damage
+
+- Nearby LAN rooms are listed by their UTF-8 names using Android NSD service attributes. Refresh runs while the room picker is open; tapping a room sends a join request without typing a code. The numeric room ID remains an optional fallback.
+- Hosts approve or reject pending requests and can remove guests before starting. Pending guests cannot mark themselves ready or start playing.
+- Players choose team one or team two before readiness. Each team holds at most two players; three-person rooms support 2 versus 1, and free-for-all remains available. Changing teams clears that player's readiness. Everyone receives the exact roster, names and team assignments at match start.
+- The host now broadcasts each damage/heal event during the turn. Guests update HP and floating damage numbers immediately on receipt; final turn reconciliation still verifies HP and terrain.
+
+Tests cover named room listing, click-to-join, admission restrictions/rejection, explicit team assignments and capacity, 2-versus-1 starts, and health events arriving exactly once before turn end. Physical Android Wi-Fi discovery still requires device testing. All players should install this version for the updated lobby protocol.

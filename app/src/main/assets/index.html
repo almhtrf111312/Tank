@@ -583,7 +583,7 @@
     #roomNumber{display:block;text-align:center;font: bold 32px monospace;letter-spacing:.18em;color:#ffd29a}
     #roster{white-space:pre-line;line-height:1.9}
     #health,#slots,#seatCount,#roomCode{padding:7px;background:#18282f;color:white;border:1px solid #68848a;border-radius:6px}
-    #roomCode{width:8em}
+    #roomCode{width:8em}#availableRooms button{display:block;width:100%;margin:6px 0}#admissionActions button{margin:4px}#teamChoice{display:block;margin:10px 0}#playerName,#roomName{width:100%;padding:8px;color:white;background:#172c34;border:1px solid #567780;border-radius:7px}#roster>div{padding:5px 0;border-bottom:1px solid #48616a44}
     #health,#seatCount{margin-bottom:10px}
     #multiHealth{display:flex;gap:6px;justify-content:center;direction:ltr;background:#101b21a8;border-radius:7px;padding:6px;font:bold 11px system-ui}
   </style>
@@ -733,7 +733,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
             </select>
           </label>
           <div class="setup-section compact-options">
-            <label>المنافسة <select id="battleFormat"><option value="free">كل لاعب لنفسه</option><option value="teams">فريقان 2 ضد 2</option></select></label>
+            <label>المنافسة <select id="battleFormat"><option value="free">كل لاعب لنفسه</option><option value="teams">فرق: اختر فريقك</option></select></label>
             <label>الجولات <select id="seriesLength"><option value="1">جولة واحدة</option><option value="3">بطولة من 3 جولات</option></select></label>
             <label><input id="trajectoryOption" type="checkbox" checked> معاينة مسار القذيفة</label>
           </div>
@@ -755,14 +755,21 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         </div>
         <p class="p2p-status" id="p2pStatus"></p>
         <section id="roomEntry" hidden>
+          <label class="lan-label">اسمك <input id="playerName" maxlength="32" placeholder="اسم اللاعب"></label>
+          <label class="lan-label">اسم الغرفة <input id="roomName" maxlength="32" placeholder="مثلاً: غرفة الأصدقاء"></label>
           <label>عدد اللاعبين <select id="slots"><option>2</option><option>3</option><option>4</option></select></label>
           <button class="primary-cta" id="createRoom">إنشاء غرفة</button>
+          <button class="secondary-btn" id="refreshRooms">تحديث الغرف على الشبكة</button>
+          <div id="availableRooms" aria-live="polite"></div>
+          <details><summary>انضمام برقم الغرفة عند الحاجة</summary>
           <label class="lan-label" for="roomCode">رقم الغرفة</label>
           <input id="roomCode" inputmode="numeric" maxlength="4" placeholder="1234" dir="ltr">
-          <button class="secondary-btn" id="joinRoom">انضمام</button>
+          <button class="secondary-btn" id="joinRoom">انضمام</button></details>
         </section>
         <section id="lobby" hidden>
-          <strong id="roomNumber" dir="ltr"></strong><p id="roster"></p>
+          <strong id="roomNumber"></strong><div id="roster"></div>
+          <label id="teamChoice">فريقك <select id="myTeam"><option value="-1">اختر الفريق</option><option value="0">الفريق الأول</option><option value="1">الفريق الثاني</option></select></label>
+          <div id="admissionActions"></div>
           <button id="roomReady" class="primary-cta">أنا جاهز</button>
           <button id="roomStart" class="primary-cta">ابدأ المعركة</button>
         </section>
@@ -1001,7 +1008,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       function statusRoom(text) { el('p2pStatus').textContent = text; }
       function updateNetBadge() {
         el('netBadge').classList.toggle('visible', !!session);
-        el('netBadge').textContent = session ? 'غرفة '+session.code : '';
+        el('netBadge').textContent = session ? session.name : '';
       }
       async function api(action, data) {
         const requestId = data.requestId || Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2,'0')).join('');
@@ -1074,7 +1081,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           if (msg.type==='START') {
             Object.assign(net,{matchStarted:true,connected:true,lastMatchId:msg.matchId});
             config.mode='p2p'; config.theme=msg.theme;
-            Object.assign(config,{format:msg.format||'free',seriesLength:msg.seriesLength||1,trajectory:msg.trajectory!==false});
+            Object.assign(config,{format:msg.format||'free',seriesLength:msg.seriesLength||1,trajectory:msg.trajectory!==false,players:msg.players});
             if(msg.seriesRound===1)tournament=null;else if(tournament)tournament.round=msg.seriesRound;
             startNewGame(msg.seed,msg.wind);
           } else if (evt.sender!==s.idx || msg.type==='FIRE') {
@@ -1089,12 +1096,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           const data=await api('poll',{...s.auth,cursor:s.cursor});
           if (s!==session) return;
           s.disconnectedAt=0;net.connected=true;updateNetBadge();
-          el('roster').textContent = Array.from({length:s.count},(_,i)=>{
-            const p=data.players.find(v=>v.idx===i);
-            return (i===0?'المضيف':'اللاعب '+(i+1))+' — '+(p?(p.connected===false?'إعادة الاتصال…':p.ready?'انضم وجاهز':'انضم، بانتظار الجاهزية'):'بانتظار الانضمام');
-          }).join('\n');
-          el('roomStart').disabled=data.started || data.players.length!==s.count || !data.players.every(p=>p.ready);
-          el('roomReady').disabled=!!data.players.find(p=>p.idx===s.idx)?.ready;
+          renderLobby(s,data);
           if (data.events.length) {
             s.cursor=data.events.at(-1).id;
             s.events.push(...data.events);
@@ -1109,25 +1111,31 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         try {
           const code=el('roomCode').value.trim().replace(/[٠-٩۰-۹]/g,ch=>String(ch.charCodeAt(0)-(ch<'۰'?0x660:0x6f0)));
           statusRoom('جارٍ الاتصال…');
-          const room=await api(action,{count:el('battleFormat').value==='teams'?4:+el('slots').value,hp:+el('health').value,format:el('battleFormat').value,seriesLength:+el('seriesLength').value,trajectory:el('trajectoryOption').checked,code});
+          const room=await api(action,{count:+el('slots').value,hp:+el('health').value,format:el('battleFormat').value,seriesLength:+el('seriesLength').value,trajectory:el('trajectoryOption').checked,roomName:el('roomName').value,playerName:el('playerName').value,code});
           session={...room,auth:{code:room.code,token:room.token},cursor:0,events:[],out:Promise.resolve(),latestPose:null,poseQueued:false};
           Object.assign(net,{localTankIdx:room.idx,role:room.idx===0?'host':'guest',active:true});
           el('roomEntry').hidden=true; el('lobby').hidden=false;
           el('roomStart').hidden=room.idx!==0; el('roomReady').hidden=room.idx===0; el('roomStart').disabled=true;
-          statusRoom('الغرفة '+room.code+' • '+room.count+' لاعبين • الدم '+room.hp+'٪'+(el('battleFormat').value==='teams'?' • فريقان':''));
-          el('roomNumber').textContent=room.code;
+          statusRoom(room.name+' • '+room.count+' لاعبين • الدم '+room.hp+'٪'+(room.idx===0?'':' • بانتظار موافقة المضيف'));
+          el('roomNumber').textContent=room.name;
           updateNetBadge(); poll(session);
         } catch(e){statusRoom(e.message);}
         finally {el('createRoom').disabled=el('joinRoom').disabled=false;}
       }
-      async function roomCommand(action) {
+      async function roomCommand(action,extra={}) {
         if (!session) return;
-        try {await api(action,{...session.auth,theme:setupTheme});} catch(e){statusRoom(e.message);showToast(e.message);}
+        try {await api(action,{...session.auth,theme:setupTheme,...extra});if(session)session.lobbySignature=null;} catch(e){if(action==='team'){const own=session?.players?.find(p=>p.idx===session.idx);if(own)el('myTeam').value=String(own.team);}statusRoom(e.message);showToast(e.message);}
       }
 
       function receiveLanAction(msg) {
         if (!net.matchStarted || msg.matchId !== net.lastMatchId) return;
-        if(msg.type==='CONTROL' && net.role==='host' && msg.idx===state.activeIdx && msg.turnSeq===state.turnSeq && state.phase==='aim') {
+        if(msg.type==='HEALTH_EVENT' && net.role==='guest' && msg.turnSeq===state.turnSeq){
+          const tank=state.tanks[msg.idx];if(!tank)return;
+          tank.hp=msg.hp;tank.shield=msg.shield;tank.hurtTimer=24;
+          state.floatingTexts.push({x:msg.x,y:msg.y-38,text:msg.label,color:msg.delta<0?'#4ade80':'#fb7185',life:68});
+          if(msg.idx===net.localTankIdx)haptic(18);updateHUD();return;
+        }
+        if(msg.type==='CONTROL'  && net.role==='host' && msg.idx===state.activeIdx && msg.turnSeq===state.turnSeq && state.phase==='aim') {
           remoteControl={...msg,seen:performance.now()};
           const tank=state.tanks[msg.idx];tank.aimAngle=msg.aimAngle;
           if(tank.ammo[msg.weaponId]>0)tank.selectedWeapon=msg.weaponId;
@@ -1481,7 +1489,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           w.ammo]));
 
         const network = config.mode === 'p2p';
-        const count = network ? session.count : (config.format==='teams'?4:(config.mode === 'pvp' ? +el('seatCount').value : 2));
+        const count = network ? session.count : (config.mode === 'pvp' ? +el('seatCount').value : 2);
         if(!tournament || tournament.complete || tournament.count!==count)tournament={count,round:1,scores:Array(count).fill(0),complete:false};
         const health = network ? session.hp : +el('health').value;
         const hp = Math.round(health * HEALTH_SCALE);
@@ -1490,10 +1498,15 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           ['الخضراء','#22c55e','#bbf7d0','#14532d'], ['الذهبية','#f6b847','#fff1ae','#854d0e']
         ];
         state.tanks = palette.slice(0,count).map(([label,color,glow,dark],idx)=>{
-          const position=config.format==='teams'?[0,2,1,3][idx]:idx;
+          const members=network?config.players:null;
+          const team=config.format==='teams'?(members?.find(p=>p.idx===idx)?.team??idx%2):idx;
+          const order=Array.from({length:count},(_,i)=>i).sort((a,b)=>{
+            const ta=members?.find(p=>p.idx===a)?.team??a%2,tb=members?.find(p=>p.idx===b)?.team??b%2;return ta-tb||a-b;
+          });
+          const position=config.format==='teams'?order.indexOf(idx):idx;
           const x = x1 + position * (x2-x1)/(count-1);
-          return {idx,name:'الدبابة '+label,color,glow,dark,x,y:findSurfaceY(x)-14,vx:0,vy:0,slope:0,
-            team:config.format==='teams'?idx%2:idx,hp,maxHp:hp,healthLabel:health,aimAngle:x<WORLD_W/2?-.65:-Math.PI+.65,fuel:100,shield:0,
+          return {idx,name:(network?config.players?.find(p=>p.idx===idx)?.name:null)||'الدبابة '+label,color,glow,dark,x,y:findSurfaceY(x)-14,vx:0,vy:0,slope:0,
+            team,hp,maxHp:hp,healthLabel:health,aimAngle:x<WORLD_W/2?-.65:-Math.PI+.65,fuel:100,shield:0,
             recoil:0,wheelPhase:0,hurtTimer:0,isAI:config.mode==='pvai'&&idx!==0,ammo:makeAmmo(),selectedWeapon:'shell'};
         });
 
@@ -1554,7 +1567,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         const title = document.getElementById('winnerTitle');
         const stats = document.getElementById('winnerStats');
         if (winner) {
-          title.textContent = config.format==='teams'?`فوز فريق ${winner.team===0?'الأحمر والأخضر':'الأزرق والذهبي'}!`:`انتصار ${winner.name}!`;
+          title.textContent = config.format==='teams'?`فوز فريق ${winner.team===0?'الأول':'الثاني'}!`:`انتصار ${winner.name}!`;
           title.style.color = winner.glow;
           stats.textContent = `انتهت المواجهة الملحمية في الجولة ${state.round} بدم متبقٍ ${Math.ceil(winner.hp * winner.healthLabel / winner.maxHp)}٪.`;
         } else {
@@ -1566,7 +1579,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           if(winner)state.tanks.filter(t=>t.team===winner.team).forEach(t=>tournament.scores[t.idx]++);
           tournament.complete=tournament.round>=config.seriesLength;
           const ranking=state.tanks.slice().sort((a,b)=>tournament.scores[b.idx]-tournament.scores[a.idx]||b.hp-a.hp);
-          stats.textContent+=' • '+(config.format==='teams'?'فريق الأحمر والأخضر ضد الأزرق والذهبي • ':'')+'الجولة '+tournament.round+'/'+config.seriesLength+' — '+ranking.map(t=>t.name+': '+tournament.scores[t.idx]).join(' | ');
+          stats.textContent+=' • '+(config.format==='teams'?'الفريق الأول ضد الفريق الثاني • ':'')+'الجولة '+tournament.round+'/'+config.seriesLength+' — '+ranking.map(t=>t.name+': '+tournament.scores[t.idx]).join(' | ');
           el('btnPlayAgain').textContent=tournament.complete?'إعادة المباراة':'الجولة التالية';
         }
         document.getElementById('btnResume').hidden = true;
@@ -1623,9 +1636,11 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         // 1. SHIELD & NANO REPAIR
         if (w.type === 'shield') {
           sfx.playShield();
-          tank.hp = Math.min(tank.maxHp, tank.hp + 35);
-          tank.shield = 2; // Lasts through opponent's next turn
-          state.floatingTexts.push({ x: tank.x, y: tank.y - 40, text: '+35 🛡️ درع!', color: '#4ade80', life: 70 });
+          const previousHP=tank.hp;
+          if(config.mode!=='p2p' || net.role==='host')tank.hp = Math.min(tank.maxHp, tank.hp + 35);
+          tank.shield = 2;
+          if(config.mode==='p2p' && net.role==='host')sendNet({type:'HEALTH_EVENT',turnSeq:state.turnSeq,idx:tank.idx,hp:tank.hp,shield:tank.shield,delta:previousHP-tank.hp,x:tank.x,y:tank.y,label:'+'+Math.round(tank.hp-previousHP)+' 🛡️'}); // Lasts through opponent's next turn
+          if(config.mode!=='p2p' || net.role==='host')state.floatingTexts.push({ x: tank.x, y: tank.y - 40, text: '+'+Math.round(tank.hp-previousHP)+' 🛡️ درع!', color: '#4ade80', life: 70 });
           for (let i = 0; i < 32; i++) {
             const a = (i / 32) * Math.PI * 2;
             state.particles.push({ type: 'spark', x: tank.x + Math.cos(a) * 26, y: tank.y - 6 + Math.sin(a) * 26, vx: Math.cos(a) * 2.5, vy: Math.sin(a) * 2.5 - 1, r: 4, life: 36, maxLife: 36, color: '#4ade80' });
@@ -1885,6 +1900,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         tank.hp = Math.max(0, tank.hp - dmg);
         if(tank.idx===net.localTankIdx || config.mode!=='p2p')haptic(18);
         tank.hurtTimer = 24;
+        if(config.mode==='p2p' && net.role==='host')sendNet({type:'HEALTH_EVENT',turnSeq:state.turnSeq,idx:tank.idx,hp:tank.hp,shield:tank.shield,delta:dmg,x:tank.x,y:tank.y,label:customLabel?customLabel+' -'+dmg:'-'+dmg});
         state.floatingTexts.push({
           x: tank.x, y: tank.y - 38,
           text: customLabel ? `${customLabel} -${dmg}` : (tank.shield > 0 ? `🛡️ -${dmg}` : `-${dmg}`),
@@ -2684,6 +2700,10 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
         }
         paintedTank(ctx,t,state.time);
+        if(config.format==='teams'){
+          ctx.save();ctx.font='bold 11px system-ui';ctx.textAlign='center';ctx.fillStyle=t.team===0?'#ffd29a':'#99eee3';ctx.strokeStyle='#09151c';ctx.lineWidth=3;
+          const label='ف'+(t.team+1);ctx.strokeText(label,t.x,t.y-47);ctx.fillText(label,t.x,t.y-47);ctx.restore();
+        }
         if (!active) return;
         const y = t.y - 36 + (reducedMotion.matches ? 0 : Math.sin(state.time * .09) * 2.5);
         ctx.fillStyle = t.glow; ctx.strokeStyle='#0b151a'; ctx.lineWidth = 1.5;
@@ -2940,7 +2960,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           el('multiHealth').replaceChildren(...state.tanks.map(t=>{
             const chip=document.createElement('span');
             chip.style.color=t.glow;
-            chip.textContent=(t.idx===state.activeIdx?'▸':'')+(t.idx+1)+'·'+displayHp(t)+'%';
+            chip.textContent=(t.idx===state.activeIdx?'▸':'')+(t.idx+1)+(config.format==='teams'?' ف'+(t.team+1):'')+'·'+displayHp(t)+'%';
             chip.title=t.name; return chip;
           }));
         }
@@ -3122,7 +3142,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         closeAllDropdowns(); cancelInput();
         el('p2pModal').classList.remove('hidden');
         el('roomEntry').hidden = !!session;
-        if (!session) statusRoom('اتصلوا بنفس الواي فاي. أنشئ غرفة أو اكتب رقمها للانضمام.');
+        if (!session) {statusRoom('اتصلوا بنفس الواي فاي، ثم اختر غرفة من القائمة أو أنشئ غرفة باسمك.');refreshRooms();}
       }
       el('btnOpenP2P').onclick = openConnectionPanel;
       el('btnCloseP2P').onclick = () => {
@@ -3130,6 +3150,46 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         el('p2pModal').classList.add('hidden');
         if (!state.running) el('setupModal').classList.remove('hidden');
       };
+      async function refreshRooms(){
+        if(session || el('refreshRooms').disabled)return;
+        const list=el('availableRooms');el('refreshRooms').disabled=true;list.textContent='جارٍ البحث عن الغرف…';
+        try{
+          const data=await api('discover',{});if(session)return;list.replaceChildren();
+          if(!data.rooms.length)list.textContent='لم تظهر غرف بعد؛ افتح غرفة على الجهاز الآخر ثم اضغط تحديث.';
+          for(const room of data.rooms){
+            const button=document.createElement('button');button.className='secondary-btn';button.textContent=room.name+' • '+room.code+' — انضمام';
+            button.onclick=()=>{el('roomCode').value=room.code;return enterRoom('join');};list.appendChild(button);
+          }
+        }catch(error){list.textContent=error.message;}finally{el('refreshRooms').disabled=false;if(!session&&!el('p2pModal').classList.contains('hidden'))setTimeout(refreshRooms,2000);}
+      }
+      function renderLobby(s,data){
+        s.players=data.players;s.format=data.format;
+        const signature=JSON.stringify([data.players,data.started,data.format]);if(s.lobbySignature===signature)return;s.lobbySignature=signature;
+        const own=data.players.find(p=>p.idx===s.idx),teams=data.format==='teams';
+        el('roster').replaceChildren();el('admissionActions').replaceChildren();
+        for(let i=0;i<s.count;i++){
+          const player=data.players.find(p=>p.idx===i),row=document.createElement('div');
+          row.textContent=player?player.name+(teams?(player.team<0?' • لم يختر فريقاً':' • الفريق '+(player.team===0?'الأول':'الثاني')):'')+' — '+(!player.approved?'طلب انضمام':player.connected===false?'إعادة الاتصال…':player.ready?'جاهز':'انضم، بانتظار الجاهزية'):'مكان شاغر';
+          el('roster').appendChild(row);
+          if(s.idx===0 && player && i!==0 && !data.started){
+            const actions=document.createElement('div');
+            const title=document.createElement('span');title.textContent=player.name+' ';actions.appendChild(title);
+            for(const [accept,label] of player.approved?[[false,'إزالة']]:[[true,'قبول'],[false,'رفض']]){
+              const button=document.createElement('button');button.className='secondary-btn';button.textContent=label;button.onclick=()=>roomCommand('decision',{target:i,accept});actions.appendChild(button);
+            }
+            el('admissionActions').appendChild(actions);
+          }
+        }
+        el('teamChoice').hidden=!teams;el('myTeam').disabled=!own?.approved || data.started;
+        if(own && document.activeElement!==el('myTeam'))el('myTeam').value=String(own.team);
+        const bothTeams=!teams||(data.players.some(p=>p.team===0)&&data.players.some(p=>p.team===1));
+        el('roomStart').disabled=data.started||data.players.length!==s.count||!data.players.every(p=>p.ready&&p.approved)||!bothTeams;
+        el('roomReady').disabled=!own?.approved||own.ready||(teams&&own.team<0);
+        if(own && !own.approved)statusRoom('بانتظار قبول المضيف لطلب انضمامك إلى '+s.name);
+        else if(!data.started)statusRoom(s.name+(teams?' • اختر فريقك ثم اضغط أنا جاهز':' • الكل ضد الكل'));
+      }
+      el('refreshRooms').onclick=refreshRooms;
+      el('myTeam').onchange=()=>roomCommand('team',{team:+el('myTeam').value});
       el('createRoom').onclick = () => enterRoom('create');
       el('joinRoom').onclick = () => enterRoom('join');
       el('roomReady').onclick = () => roomCommand('ready');
@@ -3196,7 +3256,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         config.mode = setupMode; config.theme = setupTheme;
         config.aiLevel = document.getElementById('aiLevel').value;
         config.format=el('battleFormat').value;config.seriesLength=+el('seriesLength').value;config.trajectory=el('trajectoryOption').checked;tournament=null;
-        if(config.format==='teams'){el('seatCount').value='4';el('slots').value='4';}
+
         startNewGame();
       });
       document.getElementById('btnPlayAgain').addEventListener('click', () => {

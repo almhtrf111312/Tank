@@ -7,7 +7,7 @@ let src = readFileSync(__dirname+'/../app/src/main/assets/index.html','utf8').sp
 src = src.replace('      window.onload = () => {', `      window.testing = {
   terrain:()=>solidMask, WORLD_W, isSolid, crumbleTankSupport, net, state, config, render, resizeCanvas, enterRoom,roomCommand,pollNow:()=>poll(session),sent:()=>session.out,session:()=>session, stepPhysics, fireWeapon,
   selectWeapon, aimAtWorld, toggleOverview, finishLanTurn, applyTankDamage, carveTerrain, startNewGame, getWeapon, shotSpeed, traceBeam, fireBeam, onProjectileImpact, chooseComputerShot, traceShot,
-  collapseTerrain,prefs,applyControls,battleFinished,upgradeStep,endGame,survivors,prepareAITurn,
+  collapseTerrain,prefs,applyControls,battleFinished,upgradeStep,endGame,survivors,prepareAITurn,refreshRooms,
   mask: () => {
     let hash=2166136261;
     for (const value of solidMask) hash=Math.imul(hash ^ value,16777619);
@@ -27,7 +27,7 @@ function domNode(tag='div',attrs={},text='') {
     tagName:tag.toUpperCase(), id:attrs.id, textContent:text, style:{setProperty(k,v){this[k]=v}}, disabled:attrs.disabled!==undefined,
     hidden:attrs.hidden!==undefined, value:'', dataset:{mode:attrs['data-mode'],theme:attrs['data-theme']},
     classList:new Classes(attrs.class||[]), setAttribute(k,v){this[k]=v}, addEventListener(k,f){listeners[k]=f},
-    replaceChildren(){}, appendChild(){}, setPointerCapture(){}, getBoundingClientRect(){return {left:0,top:0}},
+    children:[],replaceChildren(...items){this.children=items;}, appendChild(item){this.children.push(item);}, setPointerCapture(){}, getBoundingClientRect(){return {left:0,top:0}},
     click(){if(!this.disabled)return listeners.click?.({})},
     dispatch(k,e){return listeners[k]?.(e)}
   });
@@ -79,13 +79,23 @@ function page(w,h) {
 const frames=(pages,n=1)=>{for(let i=0;i<n;i++){now+=1000/60;pages.forEach(p=>p.api.stepPhysics())}};
 async function test(){
  const pages=Array.from({length:4},()=>page(844,390)),host=pages[0];
+ host.el('roomName').value='غرفة الأصدقاء';host.el('playerName').value='Host';
  host.el('slots').value='4';host.el('battleFormat').value='teams';host.el('seriesLength').value='3';
  await host.api.enterRoom('create');assert.ok(host.api.session(),'room created: '+host.el('p2pStatus').textContent);
- for(const p of pages.slice(1)){p.el('roomCode').value=host.api.session().code;await p.api.enterRoom('join');await p.api.roomCommand('ready');}
+ for(let i=1;i<4;i++){
+  const p=pages[i];p.el('playerName').value='Guest '+i;
+  await p.api.refreshRooms();const roomButton=p.el('availableRooms').children[0];assert.ok(roomButton.textContent.includes('غرفة الأصدقاء'));
+  await roomButton.onclick();await p.api.pollNow();assert.equal(p.el('roomReady').disabled,true,'pending player cannot ready');
+  await host.api.roomCommand('decision',{target:i,accept:true});await p.api.roomCommand('team',{team:i===1?0:1});await p.api.roomCommand('ready');
+ }
  await host.api.roomCommand('start');
  async function drain(){for(const p of pages)await p.api.sent();for(const p of pages)await p.api.pollNow();}
  await drain();
- for(const p of pages){assert.equal(p.api.state.tanks.length,4);assert.equal(p.api.config.format,'teams');assert.equal(p.api.config.seriesLength,3);assert.equal(p.api.state.tanks[0].healthLabel,100);assert.equal(p.api.state.tanks[2].team,0);}
+ for(const p of pages){assert.equal(p.api.state.tanks.length,4);assert.equal(p.api.config.format,'teams');assert.equal(p.api.config.seriesLength,3);assert.equal(p.api.state.tanks[0].healthLabel,100);assert.equal(p.api.state.tanks[1].team,0);assert.equal(p.api.state.tanks[2].team,1);assert.equal(p.api.state.tanks[1].name,'Guest 1');}
+ // Health and floating damage arrive before the turn changes, and are never computed by guests.
+ const victim=host.api.state.tanks[1],hpBefore=victim.hp;
+ host.api.applyTankDamage(victim,17);await drain();
+ for(const p of pages.slice(1)){assert.equal(p.api.state.tanks[1].hp,hpBefore-17);assert.equal(p.api.state.turnSeq,0);assert.ok(p.api.state.floatingTexts.some(t=>t.text==='-17'));}
  // Complete host turn, let delayed guests reconcile exactly to host outcome.
  host.api.selectWeapon('shield');host.api.fireWeapon(.5);await drain();frames([host],300);await drain();frames(pages.slice(1),350);await drain();
  for(const p of pages){assert.equal(p.api.state.activeIdx,1);assert.equal(p.api.state.turnSeq,1);}
@@ -102,7 +112,7 @@ async function test(){
  const retryActor=pages[2];retryActor.api.selectWeapon('shield');await drain();retryActor.sandbox.dropNextPacketReply=true;retryActor.api.fireWeapon(.5);
  await drain();await drain();frames([host],350);await drain();frames(pages.slice(1),400);await drain();
  for(const p of pages)assert.equal(p.api.state.turnSeq,3,'lost packet reply retries exactly once without duplicate turn');
- const solo=page(844,390),api=solo.api;api.config.mode='pvp';api.config.format='teams';api.startNewGame(818,0);
+ const solo=page(844,390),api=solo.api;api.config.mode='pvp';solo.el('seatCount').value='4';api.config.format='teams';api.startNewGame(818,0);
  assert.equal(api.state.tanks.length,4);api.state.tanks[1].hp=api.state.tanks[3].hp=0;assert.ok(api.battleFinished());api.endGame(api.state.tanks[0]);assert.match(solo.el('winnerTitle').textContent,/فريق/);assert.match(solo.el('winnerStats').textContent,/الدبابة/);
  api.config.format='free';api.startNewGame(819,0);const mask=api.terrain(),w=api.WORLD_W,tank=api.state.tanks[0];
  mask.fill(0);for(let y=880;y<900;y++)mask.fill(1,y*w,(y+1)*w);for(let y=380;y<420;y++)mask.fill(1,y*w+350,y*w+450);
@@ -112,6 +122,6 @@ async function test(){
  for(const level of ['normal','medium','hard']){api.config.mode='pvai';api.config.aiLevel=level;api.startNewGame(821,0);api.state.activeIdx=1;api.prepareAITurn();assert.ok(api.state.aiState && api.state.tanks[1].ammo[api.state.tanks[1].selectedWeapon]>0);for(let i=0;i<2;i++)api.stepPhysics();const plan=api.chooseComputerShot(api.state.tanks[1],api.state.tanks[0],level==='hard');assert.ok(Number.isFinite(plan.power)&&plan.power<=1);}
  if(process.env.TANK_PREVIEW)writeFileSync(process.env.TANK_PREVIEW,pages[0].el('gameCanvas').toBuffer('image/png'));
  api.prefs.quality='low';api.state.particles=Array.from({length:400},()=>({life:10}));const beforeHP=api.state.tanks[0].hp;api.upgradeStep();assert.ok(api.state.particles.length<=100);assert.equal(api.state.tanks[0].hp,beforeHP,'quality never changes gameplay damage');
- console.log('PASS four HTTP clients, host-only guest movement, authoritative HP/terrain, delayed shots, teams, tournament results, floating islands, mine arming/damage, AI plans, rendering.');
+ console.log('PASS named-room listing and click-to-join, host approval, explicit teams, immediate HP and floating damage before turn end, four HTTP clients, authoritative movement/terrain, delayed shots, tournament, mines, AI and rendering.');
 }
 test().catch(e=>{console.error(e);process.exitCode=1});

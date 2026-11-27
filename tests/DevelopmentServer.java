@@ -8,7 +8,7 @@ public final class DevelopmentServer {
         RoomEngine engine = new RoomEngine();
         LocalHttpServer server = new LocalHttpServer((method, path, headers, body, local) ->
             LocalHttpServer.Response.json(200,
-                engine.call(path.substring(6), Json.map(Json.parse(new String(body, StandardCharsets.UTF_8))))));
+                path.equals("/room/discover")?engine.listing():engine.call(path.substring(6), Json.map(Json.parse(new String(body, StandardCharsets.UTF_8))))));
         server.start();
         System.out.println(server.port());
         System.out.flush();
