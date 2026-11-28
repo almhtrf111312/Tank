@@ -5,6 +5,8 @@ import java.util.*;
 import java.util.function.LongSupplier;
 
 final class RoomEngine {
+    static final int MAX_EVENTS=512, MAX_EVENT_BYTES=524288;
+    private long calls,packetBytes,pollBytes,maxPollBytes,snapshotRequests;
     private final SecureRandom random = new SecureRandom();
     private final LongSupplier clock;
     private Room room;
@@ -25,6 +27,9 @@ final class RoomEngine {
         String format = "free"; boolean trajectory = true;
         boolean started, fired, done;
         long seen,deadline;
+        int eventBytes,revision;
+        Map<String,Object> start,world;
+        TerrainState terrain;
         final Set<String> rejected = new HashSet<>();
         final Map<String, Player> players = new LinkedHashMap<>();
         final Deque<Map<String, Object>> events = new ArrayDeque<>();
@@ -35,7 +40,7 @@ final class RoomEngine {
     }
     synchronized String code() { return room == null ? "" : room.code; }
     synchronized String name() { return room == null ? "" : room.name; }
-    synchronized Object listing() {return Json.object("rooms",room==null?Collections.emptyList():Collections.singletonList(Json.object("code",room.code,"name",room.name)));}
+    synchronized Object listing() {return Json.object("rooms",room==null?Collections.emptyList():Collections.singletonList(Json.object("code",room.code,"name",room.name,"protocol",Protocol.VERSION)));}
     private String cleanName(Map<String,Object> data,String key,String fallback){
         String value=Json.text(data,key).replaceAll("[\\p{Cntrl}]", "").trim();
         if(value.isEmpty())return fallback;
@@ -43,11 +48,21 @@ final class RoomEngine {
     }
     synchronized void clear() { room = null; receipts.clear(); }
 
+    synchronized Object stats(){return Json.object("calls",calls,"packetBytes",packetBytes,"pollBytes",pollBytes,"maxPollBytes",maxPollBytes,"snapshotRequests",snapshotRequests,"events",room==null?0:room.events.size(),"eventBytes",room==null?0:room.eventBytes,"terrainBytes",room==null||room.terrain==null?0:room.terrain.mask.length);}
     synchronized Object call(String action, Map<String, Object> data) {
+        calls++;
+        if(action.equals("info")){Protocol.requireVersion(data);return Json.object("protocol",Protocol.VERSION,"code",code(),"name",name());}
+        if(action.equals("create") || action.equals("join"))Protocol.requireVersion(data);
+        if(action.equals("poll") && Boolean.TRUE.equals(data.get("wait")) && room!=null && room.code.equals(Json.text(data,"code")) && room.players.containsKey(Json.text(data,"token")) && Json.number(data,"cursor")>=room.cursor){
+            try{wait(700);}catch(InterruptedException interrupted){Thread.currentThread().interrupt();}
+        }
         String request = Json.text(data, "requestId");
         String receiptKey = action + "/" + Json.text(data, "token") + "/" + request;
         if (!request.isEmpty() && receipts.containsKey(receiptKey)) return receipts.get(receiptKey);
         Object result = execute(action, data);
+        if(action.equals("packet"))packetBytes+=Json.stringify(data).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        if(action.equals("poll")){int bytes=Json.stringify(result).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;pollBytes+=bytes;maxPollBytes=Math.max(maxPollBytes,bytes);}
+        if(!action.equals("poll"))notifyAll();
         if (!request.isEmpty() && !action.equals("poll")) {
             receipts.put(receiptKey, result);
             if (receipts.size() > 256) receipts.remove(receipts.keySet().iterator().next());
@@ -67,7 +82,7 @@ final class RoomEngine {
             int requestedSeries = data.containsKey("seriesLength") ? Json.number(data,"seriesLength") : 1;
             require(requestedSeries == 1 || requestedSeries == 3, "عدد جولات غير صالح");
             room = new Room();
-            room.code = Integer.toString(1000 + random.nextInt(9000));
+            room.code = Integer.toString(100000 + random.nextInt(900000));
             room.count = count;room.name=cleanName(data,"roomName","غرفة الدبابات");
             room.hp = hp;
             String format = Json.text(data, "format");
@@ -81,19 +96,7 @@ final class RoomEngine {
             return join(now,data);
         }
         require(room != null && room.code.equals(Json.text(data, "code")), "الغرفة غير موجودة");
-        if (now - room.seen >= 240_000) {
-            clear();
-            throw new IllegalArgumentException("انتهت جلسة الغرفة");
-        }
-        for (Iterator<Map.Entry<String, Player>> it = room.players.entrySet().iterator(); it.hasNext();) {
-            Player p = it.next().getValue();
-            if (now - p.seen < 180_000) continue;
-            if (room.started || p.index == 0) {
-                clear();
-                throw new IllegalArgumentException("انقطع اتصال أحد اللاعبين. أنشئ غرفة جديدة");
-            }
-            it.remove();
-        }
+        // Seats are owned by tokens, not by recent traffic or HP. Offline spectators can resume.
         room.seen = now;
         if (action.equals("join")) {
             require(!room.started && room.players.size() < room.count, "الغرفة ممتلئة أو بدأت");
@@ -107,12 +110,22 @@ final class RoomEngine {
         switch (action) {
             case "poll":
                 int cursor = Json.number(data, "cursor");
-                require(room.events.isEmpty() || cursor >= Json.number(room.events.peekFirst(), "id") - 1,
-                        "انقطع التزامن. أنشئ غرفة جديدة");
+                boolean resync=cursor<room.cursor && (room.events.isEmpty() || cursor<Json.number(room.events.peekFirst(),"id")-1);
                 List<Object> roster = new ArrayList<>(), events = new ArrayList<>();
                 for (Player p : room.players.values()) roster.add(Json.object("idx", p.index, "ready", p.ready, "connected", now - p.seen < 8000,"approved",p.approved,"team",p.team,"name",p.name));
-                for (Map<String, Object> e : room.events) if (Json.number(e, "id") > cursor) events.add(e);
-                return Json.object("players", roster, "events", events, "started", room.started,"format",room.format,"name",room.name,"remainingMs",Math.max(0,room.deadline-now));
+                if(resync && index==0 && room.world==null && room.start!=null){events.add(Json.object("id",room.cursor,"sender",0,"msg",room.start));resync=false;cursor=room.cursor;}
+                int batchBytes=0;
+                if(!resync)for(Map<String,Object> e:room.events)if(Json.number(e,"id")>cursor){int bytes=Json.stringify(e).length();if(events.size()>=64 || batchBytes+bytes>128000)break;events.add(e);batchBytes+=bytes;}
+                return Json.object("players", roster, "events", events, "started", room.started,"format",room.format,"name",room.name,"remainingMs",Math.max(0,room.deadline-now),"resync",resync,"protocol",Protocol.VERSION);
+            case "snapshot":
+                require(player.approved,"بانتظار موافقة المضيف");snapshotRequests++;
+                if(room.world==null || room.terrain==null)return Json.object("pending",true,"started",room.started,"start",room.start,"cursor",room.cursor);
+                return Json.object("start",room.start,"world",Json.parse(Json.stringify(room.world)),"terrainRle",room.terrain.encode(),"cutCount",room.terrain.cuts,"rectCount",room.terrain.rects,"cursor",room.cursor,"remainingMs",Math.max(0,room.deadline-now),"protocol",Protocol.VERSION);
+            case "checkpoint":
+                require(index==0 && room.started && room.match.equals(Json.text(data,"matchId")),"المضيف ينشئ اللقطة");
+                TerrainState terrain=new TerrainState();terrain.load(data.get("terrainRle"),Json.number(data,"cutCount"),Json.number(data,"rectCount"));
+                room.terrain=terrain;room.world=new LinkedHashMap<>(Json.map(data.get("world")));room.revision=data.containsKey("revision")?Json.number(data,"revision"):room.revision;room.world.put("revision",room.revision);
+                return Json.object("cutCount",terrain.cuts,"rectCount",terrain.rects);
             case "decision":
                 require(index==0 && !room.started,"المضيف يقرر قبل بدء المعركة");
                 int target=Json.number(data,"target");
@@ -146,14 +159,15 @@ final class RoomEngine {
                 room.seriesRound = room.seriesRound >= room.seriesLength ? 1 : room.seriesRound + 1;
                 room.started = true;room.deadline=now+600_000;
                 room.fired = room.done = false;
-                room.turn = room.sequence = 0;
+                room.turn = room.sequence = 0;room.revision=0;room.world=null;room.terrain=null;room.events.clear();room.eventBytes=0;
                 room.match = token();
-                emit(index, Json.object("type", "START", "seed", random.nextInt(1_000_000_000),
-                        "wind", 0, "theme", theme, "matchId", room.match,"format",room.format,"seriesLength",room.seriesLength,"seriesRound",room.seriesRound,"trajectory",room.trajectory,"players",room.players.values().stream().map(p->Json.object("idx",p.index,"team",p.team,"name",p.name)).collect(java.util.stream.Collectors.toList())));
+                room.start=Json.object("type", "START", "seed", random.nextInt(1_000_000_000),
+                        "wind", 0, "theme", theme, "matchId", room.match,"format",room.format,"seriesLength",room.seriesLength,"seriesRound",room.seriesRound,"trajectory",room.trajectory,"players",room.players.values().stream().map(p->Json.object("idx",p.index,"team",p.team,"name",p.name)).collect(java.util.stream.Collectors.toList()));
+                emit(index,room.start);
                 break;
             case "packet":
                 packet(index, Json.map(data.get("msg")));
-                break;
+                return Json.object("cutCount",room.terrain==null?0:room.terrain.cuts,"rectCount",room.terrain==null?0:room.terrain.rects);
             case "leave":
                 if (index == 0 || room.started) clear();
                 else room.players.remove(Json.text(data, "token"));
@@ -172,13 +186,20 @@ final class RoomEngine {
         Player player=new Player(index,now,cleanName(data,"playerName","اللاعب "+(index+1)));
         if(room.format.equals("teams") && index!=0)player.team=-1;
         room.players.put(token, player);
-        return Json.object("code", room.code, "token", token, "idx", index, "count", room.count, "hp", room.hp,"name",room.name,"format",room.format);
+        return Json.object("code", room.code, "token", token, "idx", index, "count", room.count, "hp", room.hp,"name",room.name,"format",room.format,"protocol",Protocol.VERSION);
     }
 
     private void packet(int index, Map<String, Object> msg) {
+        String requestedType=Json.text(msg,"type");
+        int revision=msg.containsKey("revision")?Json.number(msg,"revision"):room.revision+1;
+        if(index==0 && requestedType.equals("HOST_STATE") && (revision<room.revision || room.fired&&Json.text(msg,"phase").equals("aim")))return;
+        if(index==0 && requestedType.equals("HOST_STATE") && (room.done || room.sequence!=Json.number(msg,"turnSeq")))return;
         require(room.started && !room.done && room.match.equals(Json.text(msg, "matchId"))
                 && room.sequence == Json.number(msg, "turnSeq"), "تغير الدور");
         String type = Json.text(msg, "type");
+        if(index==0 && (type.equals("HOST_STATE")||type.equals("LAN_RESULT"))){
+            require(room.terrain!=null,"SNAPSHOT_REQUIRED");room.terrain.delta(msg);
+        }
         if(type.equals("HEALTH_EVENT")){
             require(index==0,"المضيف يعتمد الضرر");
             int victim=Json.number(msg,"idx");require(victim>=0 && victim<room.count,"دبابة غير صالحة");
@@ -186,7 +207,7 @@ final class RoomEngine {
             double hp=((Number)msg.get("hp")).doubleValue(),delta=((Number)msg.get("delta")).doubleValue();
             require(Double.isFinite(hp)&&hp>=0&&hp<=room.hp && Double.isFinite(delta),"دم غير صالح");
         } else if (type.equals("HOST_STATE")) {
-            require(index == 0 && !room.fired && msg.get("tanks") instanceof List && ((List<?>) msg.get("tanks")).size() == room.count, "المضيف يزامن الحالة");
+            require(index == 0 && msg.get("tanks") instanceof List && ((List<?>) msg.get("tanks")).size() == room.count, "المضيف يزامن الحالة");
         } else if (type.equals("CONTROL") || type.equals("FIRE_REQUEST")) {
             require(index == room.turn && index == Json.number(msg,"idx") && !room.fired, "انتظر دورك");
             require(msg.get("aimAngle") instanceof Number && Double.isFinite(((Number)msg.get("aimAngle")).doubleValue()), "زاوية غير صالحة");
@@ -225,11 +246,28 @@ final class RoomEngine {
                 room.fired = true;
             }
         }
+        if(index==0 && room.world!=null && (type.equals("FIRE")||type.equals("ENVIRONMENT"))){room.world.put("phase",type.equals("FIRE")?"firing":"settle");room.world.put("activeIdx",room.turn);room.world.put("revision",revision);}
+        if(index==0 && type.equals("HOST_STATE")){
+            Map<String,Object> previous=room.world;
+            room.world=Json.map(Json.parse(Json.stringify(msg)));room.world.remove("cuts");room.world.remove("rects");
+            if(previous!=null){List<?> old=(List<?>)previous.get("tanks"),next=(List<?>)room.world.get("tanks");for(int i=0;i<next.size();i++){Map<String,Object> t=Json.map(next.get(i));if(!t.containsKey("ammo") && old!=null && i<old.size())t.put("ammo",Json.map(old.get(i)).get("ammo"));}}
+        }
+        if(index==0 && type.equals("HEALTH_EVENT") && revision>=room.revision && room.world!=null){
+            List<?> tanks=(List<?>)room.world.get("tanks");int target=Json.number(msg,"idx");
+            if(tanks!=null && target<tanks.size()){Map<String,Object> tank=Json.map(tanks.get(target));tank.put("hp",msg.get("hp"));tank.put("shield",msg.get("shield"));room.world.put("revision",revision);}
+        }
+        if(index==0 && type.equals("LAN_RESULT")){
+            room.world=Json.map(Json.parse(Json.stringify(msg)));room.world.remove("cuts");room.world.remove("rects");room.world.put("phase",room.done?"gameover":"aim");room.world.put("activeIdx",room.turn);room.world.put("turnSeq",room.sequence);
+        }
+        if(index==0)room.revision=Math.max(room.revision,revision);
         emit(index, msg);
     }
 
     private void emit(int index, Map<String, Object> msg) {
-        room.events.addLast(Json.object("id", ++room.cursor, "sender", index, "msg", msg));
-        if (room.events.size() > 12000) room.events.removeFirst();
+        Map<String,Object> event=Json.object("id",++room.cursor,"sender",index,"msg",msg);
+        int bytes=Json.stringify(event).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        room.events.addLast(event);room.eventBytes+=bytes;
+        while(room.events.size()>MAX_EVENTS || room.eventBytes>MAX_EVENT_BYTES){Map<String,Object> old=room.events.removeFirst();room.eventBytes-=Json.stringify(old).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;}
+        notifyAll();
     }
 }
