@@ -5,9 +5,9 @@ const vm = require('node:vm');
 const elements = JSON.parse(readFileSync(__dirname+'/dom.json','utf8'));
 let src = readFileSync(__dirname+'/../app/src/main/assets/index.html','utf8').split('<script>')[1].split('</script>')[0];
 src = src.replace('      window.onload = () => {', `      window.testing = {
-  terrain:()=>solidMask, WORLD_W, isSolid, crumbleTankSupport, net, state, config, render, resizeCanvas, enterRoom,roomCommand,pollNow:()=>poll(session),sent:()=>session.out,session:()=>session, stepPhysics, fireWeapon,
+  terrain:()=>solidMask, WORLD_W, isSolid, crumbleTankSupport, net, state, config, render, resizeCanvas, enterRoom,roomCommand,pollNow:()=>poll(session),sent:()=>Promise.all([session.out,session.poseOut,session.checkpointReady]),session:()=>session, stepPhysics, fireWeapon,
   selectWeapon, aimAtWorld, toggleOverview, finishLanTurn, applyTankDamage, carveTerrain, startNewGame, getWeapon, shotSpeed, traceBeam, fireBeam, onProjectileImpact, chooseComputerShot, traceShot,
-  collapseTerrain,prefs,applyControls,battleFinished,upgradeStep,endGame,survivors,prepareAITurn,refreshRooms,timeoutWinner,expireMatch,observeFrame,renderScale,economicQuality,effectCount,
+  collapseTerrain,prefs,applyControls,battleFinished,upgradeStep,endGame,survivors,prepareAITurn,refreshRooms,receiveLanAction,sendNet,recoverSession,publishHostState,handleRoomFailure,netMetrics,worldState,encodeTerrain,timeoutWinner,expireMatch,observeFrame,renderScale,economicQuality,effectCount,
   mask: () => {
     let hash=2166136261;
     for (const value of solidMask) hash=Math.imul(hash ^ value,16777619);
@@ -60,7 +60,7 @@ function page(w,h) {
   Object.defineProperties(canvas,{clientWidth:{get:()=>sandbox.innerWidth},clientHeight:{get:()=>sandbox.innerHeight}});
   Object.assign(hero,{clientWidth:w>h?260:w-24,clientHeight:w>h?276:164});
   const sandbox = {location:{protocol:"file:",hostname:""},crypto:require("crypto").webcrypto,document,devicePixelRatio:1,performance:{now:()=>now},innerWidth:w,innerHeight:h,
-    AbortController,localStorage:{getItem(){return null},setItem(){}},matchMedia:()=>({matches:false}), ResizeObserver:class {observe(){}},
+    AbortController,TextEncoder,localStorage:{getItem(){return null},setItem(){}},matchMedia:()=>({matches:false}), ResizeObserver:class {observe(){}},
     navigator:{}, AudioContext: null,
     addEventListener(){},requestAnimationFrame:()=>1,cancelAnimationFrame(){},
     fetch:async(route,opts)=>{
@@ -68,7 +68,7 @@ function page(w,h) {
       if(sandbox.dropNextPacketReply && route==='/room/packet'){sandbox.dropNextPacketReply=false;throw Error('simulated lost response after server accepted request');}
       return response;
     },
-    setTimeout:(fn,ms)=>[75,320].includes(ms)?1:setTimeout(fn,ms),clearTimeout,setInterval:()=>1,clearInterval(){},
+    setTimeout:(fn,ms)=>[35,90,75,320].includes(ms)?1:setTimeout(fn,ms),clearTimeout,setInterval:()=>1,clearInterval(){},
     btoa,atob,console};
   sandbox.window=sandbox;
   vm.runInNewContext(src,sandbox);
@@ -89,7 +89,7 @@ async function test(){
   await host.api.roomCommand('decision',{target:i,accept:true});await p.api.roomCommand('team',{team:i===1?0:1});await p.api.roomCommand('ready');
  }
  await host.api.roomCommand('start');
- async function drain(){for(const p of pages)await p.api.sent();for(const p of pages)await p.api.pollNow();}
+ async function drain(){for(const p of pages)await p.api.sent();for(const p of pages)await p.api.pollNow();for(const p of pages)await p.api.sent();}
  await drain();
  for(const p of pages){assert.equal(p.api.state.tanks.length,4);assert.equal(p.api.config.format,'teams');assert.equal(p.api.config.seriesLength,3);assert.equal(p.api.state.tanks[0].healthLabel,100);assert.equal(p.api.state.tanks[1].team,0);assert.equal(p.api.state.tanks[2].team,1);assert.equal(p.api.state.tanks[1].name,'Guest 1');}
  // Health and floating damage arrive before the turn changes, and are never computed by guests.
@@ -101,11 +101,11 @@ async function test(){
  for(const p of pages){assert.equal(p.api.state.activeIdx,1);assert.equal(p.api.state.turnSeq,1);}
  const guest=pages[1],before=host.api.state.tanks[1].x;
  guest.el('btnLeft').dispatch('pointerdown',{pointerType:'touch',button:-1,pointerId:14,preventDefault(){}});
- frames([guest],8);assert.equal(guest.api.state.tanks[1].x,before,'guest does not decide its own position');await drain();
+ frames([guest],8);assert.ok(Math.abs(guest.api.state.tanks[1].x-before)<.01,'guest does not decide its own position; wire poses have 0.01 precision');await drain();
  frames([host],10);await drain();assert.ok(host.api.state.tanks[1].x<before,'host executes guest input');
  guest.el('btnLeft').dispatch('pointerup',{pointerId:14});await drain();frames([host],8);await drain();
  frames([guest],16);
- assert.ok(Math.abs(guest.api.state.tanks[1].x-host.api.state.tanks[1].x)<.001,'authoritative movement broadcast');
+ assert.ok(Math.abs(guest.api.state.tanks[1].x-host.api.state.tanks[1].x)<.02,'authoritative movement broadcast');
  guest.api.selectWeapon('shell');guest.api.aimAtWorld(guest.api.state.tanks[1].x+100,guest.api.state.tanks[1].y+60);guest.api.fireWeapon(.22);await drain();await drain();
  frames([host],700);await drain();frames(pages.slice(1),750);await drain();
  for(const p of pages){assert.equal(p.api.state.turnSeq,2);assert.equal(p.api.mask(),host.api.mask(),'terrain authority');assert.deepEqual(Array.from(p.api.state.tanks,t=>t.hp),Array.from(host.api.state.tanks,t=>t.hp));p.api.render();}
@@ -139,4 +139,5 @@ async function test(){
  api.prefs.quality='low';api.state.particles=Array.from({length:400},()=>({life:10}));const beforeHP=api.state.tanks[0].hp;api.upgradeStep();assert.ok(api.state.particles.length<=100);assert.equal(api.state.tanks[0].hp,beforeHP,'quality never changes gameplay damage');
  console.log('PASS 3-missile barrage and attack caps, adaptive resolution/effects, ten-minute expiry with shared team winner and ties, plus named lobbies, admission, teams, immediate damage, reconnection, physics and rendering.');
 }
-test().catch(e=>{console.error(e);process.exitCode=1});
+module.exports={page,frames,setNow:value=>{now=value},getNow:()=>now};
+if(require.main===module)test().catch(e=>{console.error(e);process.exitCode=1});

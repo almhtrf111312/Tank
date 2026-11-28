@@ -763,11 +763,12 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           <div id="availableRooms" aria-live="polite"></div>
           <details><summary>انضمام برقم الغرفة عند الحاجة</summary>
           <label class="lan-label" for="roomCode">رقم الغرفة</label>
-          <input id="roomCode" inputmode="numeric" maxlength="4" placeholder="1234" dir="ltr">
+          <input id="roomCode" inputmode="numeric" maxlength="6" placeholder="123456" dir="ltr">
           <button class="secondary-btn" id="joinRoom">انضمام</button></details>
+          <details><summary>إدخال IP يدوياً إذا لم تظهر الغرفة</summary><label>عنوان المضيف والمنفذ <input id="manualAddress" placeholder="192.168.1.5:54321" dir="ltr"></label><button class="secondary-btn" id="joinManual">انضمام بالعنوان</button><p class="controls-hint">العنوان يظهر عند المضيف. إذا كان الراوتر يمنع الاتصال بين الأجهزة كلياً، فلن يتجاوز IP اليدوي هذا المنع.</p></details>
         </section>
         <section id="lobby" hidden>
-          <strong id="roomNumber"></strong><div id="roster"></div>
+          <strong id="roomNumber"></strong><p id="manualHostInfo" dir="ltr" style="font-size:11px;word-break:break-all"></p><div id="roster"></div>
           <label id="teamChoice">فريقك <select id="myTeam"><option value="-1">اختر الفريق</option><option value="0">الفريق الأول</option><option value="1">الفريق الثاني</option></select></label>
           <div id="admissionActions"></div>
           <button id="roomReady" class="primary-cta">أنا جاهز</button>
@@ -1000,271 +1001,147 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       // ============================================================
       // 3. LOCAL MULTIPLAYER
       // ============================================================
-      const net = {active:false, connected:false, role:null, localTankIdx:0, lastSyncSend:0, matchStarted:false};
-      const el = id => document.getElementById(id);
+      const net={active:false,connected:false,role:null,localTankIdx:0,lastSyncSend:0,matchStarted:false,spectating:false};
+      const el=id=>document.getElementById(id);
+      const PROTOCOL=2;
       const SHOT_CAPS={shell:38,itano:30,mirv:36,drill:40,kame:32,meteor:40,blackhole:38,plasma:36,volcano:38,triple:36,sticky:38,pulse:15,mine:34};
-      let session = null, lanBackup = null, lanResult = null, lanCuts = [];
+      let session=null,lanBackup=null,lanResult=null,lanCuts=[];
       let terrainHistory=[],terrainRects=[],terrainDirty=false,remoteControl=null,lastHostState=0;
-      let tournament=null,matchSeed=0;
-      function statusRoom(text) { el('p2pStatus').textContent = text; }
-      function updateNetBadge() {
-        el('netBadge').classList.toggle('visible', !!session);
-        el('netBadge').textContent = session ? session.name : '';
-      }
-      async function api(action, data) {
-        const requestId = data.requestId || Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2,'0')).join('');
-        const body = JSON.stringify({...data, requestId});
-        for (let attempt = 0; attempt < 6; attempt++) {
-          let response;
-          const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),4500);
-          try {
-            response = await fetch('/room/' + action, {
-              method:'POST', headers:{'Content-Type':'application/json'}, body,signal:controller.signal
-            });
-          } catch (error) {
-            if (attempt === 5) throw Error('تعذّر الوصول للمضيف. تأكد من نفس الواي فاي.');
-            await new Promise(resolve=>setTimeout(resolve,500+attempt*250));continue;
-          } finally {clearTimeout(timeout);}
-          const result = await response.json();
-          if (!response.ok) {const error=Error(result.error || 'تعذّر الاتصال بالغرفة.');error.permanent=true;throw error;}
-          return result;
+      let guestCuts=0,guestRects=0,lastWorldKey='',tournament=null,matchSeed=0;
+      window.tankNetworkMetrics=()=>JSON.parse(JSON.stringify(netMetrics));
+      const netMetrics={requests:0,requestBytes:0,responseBytes:0,maxRequestBytes:0,maxResponseBytes:0,requestMs:[],urgentQueue:0,maxUrgentQueue:0,poseDrops:0,resyncs:0};
+      function statusRoom(text){el('p2pStatus').textContent=text;}
+      function updateNetBadge(){el('netBadge').classList.toggle('visible',!!session);el('netBadge').textContent=session?(net.connected?(net.spectating?'متفرج · ':'')+session.name:'إعادة الاتصال…'):'';}
+      function requestId(){return Array.from(crypto.getRandomValues(new Uint8Array(16)),v=>v.toString(16).padStart(2,'0')).join('');}
+      async function api(action,data={},options={}){
+        const body=JSON.stringify({...data,protocol:PROTOCOL,requestId:data.requestId||requestId()});
+        for(let attempt=0;attempt<(options.attempts??3);attempt++){
+          const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),options.timeout||4500),started=Date.now();
+          try{
+            netMetrics.requests++;const bytes=new TextEncoder().encode(body).length;netMetrics.requestBytes+=bytes;netMetrics.maxRequestBytes=Math.max(netMetrics.maxRequestBytes,bytes);
+            const response=await fetch('/room/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body,signal:controller.signal});
+            const text=await response.text(),size=new TextEncoder().encode(text).length;netMetrics.responseBytes+=size;netMetrics.maxResponseBytes=Math.max(netMetrics.maxResponseBytes,size);
+            const result=JSON.parse(text);if(!response.ok){const error=Error(result.error||'تعذّر الاتصال بالغرفة');error.permanent=response.status<500&&!result.retryable;throw error;}return result;
+          }catch(error){if(error.permanent||attempt===(options.attempts??3)-1)throw error;await new Promise(r=>setTimeout(r,250+attempt*250));}
+          finally{clearTimeout(timer);netMetrics.requestMs.push(Math.max(0,Date.now()-started));if(netMetrics.requestMs.length>256)netMetrics.requestMs.shift();}
         }
       }
-
-      function closeP2PConnection() {
-        const old = session;
-        session = null;
-        if (old) api('leave',old.auth).catch(()=>{});
-        Object.assign(net,{active:false,connected:false,matchStarted:false,role:null});
-        lanCuts=[]; lanBackup=null; lanResult=null;
-        el('lobby').hidden=true; el('roomEntry').hidden=false;
-        updateNetBadge();
-      }
-      function failRoom(s,error) {
-        if (session !== s) return;
-        closeP2PConnection(); cancelInput();
-        state.running=false;
-        el('gameOverModal').classList.add('hidden');
-        el('p2pModal').classList.remove('hidden');
-        statusRoom(error.message+' • أنشئ غرفة جديدة أو انضم مجددًا.');
-      }
-      function sendNet(msg) {
-        const s=session;
-        if (!s) return;
-        const packet={...msg,matchId:net.lastMatchId};
-        const send = async data => {
-          const requestId=Array.from(crypto.getRandomValues(new Uint8Array(16)),v=>v.toString(16).padStart(2,'0')).join('');
-          while(session===s){
-            try{return await api('packet',{...s.auth,msg:data,requestId});}
-            catch(error){if(error.permanent)throw error;if(!handleRoomFailure(s,error))return;await new Promise(resolve=>setTimeout(resolve,800));}
-          }
-        };
-        if (msg.type==='CONTROL' || msg.type==='HOST_STATE') {
-          s.latestPose=packet;
-          if (s.poseQueued) return;
-          s.poseQueued=true;
-          s.out=s.out.then(()=>{
-            const latest=s.latestPose;
-            s.latestPose=null;
-            s.poseQueued=false;
-            if (latest) return send(latest);
-          }).catch(error=>handleRoomFailure(s,error));
-          return;
-        }
-        // A shot contains the latest pose, so queued movement can be dropped.
-        s.latestPose=null;
-        s.out=s.out.then(()=>send(packet)).catch(error=>handleRoomFailure(s,error));
-      }
-
-      function applyRoomEvents(s) {
-        while (session===s && s.events.length && !lanResult) {
-          const evt=s.events.shift(), msg=evt.msg;
-          if (msg.type==='START') {
-            Object.assign(net,{matchStarted:true,connected:true,lastMatchId:msg.matchId});
-            config.mode='p2p'; config.theme=msg.theme;
-            Object.assign(config,{format:msg.format||'free',seriesLength:msg.seriesLength||1,trajectory:msg.trajectory!==false,players:msg.players});
-            if(msg.seriesRound===1)tournament=null;else if(tournament)tournament.round=msg.seriesRound;
-            startNewGame(msg.seed,msg.wind);
-          } else if (evt.sender!==s.idx || msg.type==='FIRE') {
-            receiveLanAction(msg);
-          }
-        }
-      }
-
-      async function poll(s) {
-        if (s!==session) return;
-        try {
-          const data=await api('poll',{...s.auth,cursor:s.cursor});
-          if (s!==session) return;
-          s.disconnectedAt=0;net.connected=true;updateNetBadge();
-          if(data.started && Number.isFinite(data.remainingMs))state.matchDeadline=performance.now()+data.remainingMs;
-          renderLobby(s,data);
-          if (data.events.length) {
-            s.cursor=data.events.at(-1).id;
-            s.events.push(...data.events);
-            applyRoomEvents(s);
-          }
-          setTimeout(()=>poll(s),data.started?75:320);
-        } catch(e){if(handleRoomFailure(s,e))setTimeout(()=>poll(s),800);}
-      }
-      async function enterRoom(action) {
-        if (session || el('createRoom').disabled) return;
-        el('createRoom').disabled=el('joinRoom').disabled=true;
-        try {
-          const code=el('roomCode').value.trim().replace(/[٠-٩۰-۹]/g,ch=>String(ch.charCodeAt(0)-(ch<'۰'?0x660:0x6f0)));
-          statusRoom('جارٍ الاتصال…');
-          const room=await api(action,{count:+el('slots').value,hp:+el('health').value,format:el('battleFormat').value,seriesLength:+el('seriesLength').value,trajectory:el('trajectoryOption').checked,roomName:el('roomName').value,playerName:el('playerName').value,code});
-          session={...room,auth:{code:room.code,token:room.token},cursor:0,events:[],out:Promise.resolve(),latestPose:null,poseQueued:false};
-          Object.assign(net,{localTankIdx:room.idx,role:room.idx===0?'host':'guest',active:true});
-          el('roomEntry').hidden=true; el('lobby').hidden=false;
-          el('roomStart').hidden=room.idx!==0; el('roomReady').hidden=room.idx===0; el('roomStart').disabled=true;
-          statusRoom(room.name+' • '+room.count+' لاعبين • الدم '+room.hp+'٪'+(room.idx===0?'':' • بانتظار موافقة المضيف'));
-          el('roomNumber').textContent=room.name;
-          updateNetBadge(); poll(session);
-        } catch(e){statusRoom(e.message);}
-        finally {el('createRoom').disabled=el('joinRoom').disabled=false;}
-      }
-      async function roomCommand(action,extra={}) {
-        if (!session) return;
-        try {await api(action,{...session.auth,theme:setupTheme,...extra});if(session)session.lobbySignature=null;} catch(e){if(action==='team'){const own=session?.players?.find(p=>p.idx===session.idx);if(own)el('myTeam').value=String(own.team);}statusRoom(e.message);showToast(e.message);}
-      }
-
-      function receiveLanAction(msg) {
-        if (!net.matchStarted || msg.matchId !== net.lastMatchId) return;
-        if(msg.type==='HEALTH_EVENT' && net.role==='guest' && msg.turnSeq===state.turnSeq){
-          const tank=state.tanks[msg.idx];if(!tank)return;
-          tank.hp=msg.hp;tank.shield=msg.shield;tank.hurtTimer=24;
-          state.floatingTexts.push({x:msg.x,y:msg.y-38,text:msg.label,color:msg.delta<0?'#4ade80':'#fb7185',life:68});
-          if(msg.idx===net.localTankIdx)haptic(18);updateHUD();return;
-        }
-        if(msg.type==='CONTROL'  && net.role==='host' && msg.idx===state.activeIdx && msg.turnSeq===state.turnSeq && state.phase==='aim') {
-          remoteControl={...msg,seen:performance.now()};
-          const tank=state.tanks[msg.idx];tank.aimAngle=msg.aimAngle;
-          if(tank.ammo[msg.weaponId]>0)tank.selectedWeapon=msg.weaponId;
-          return;
-        }
-        if(msg.type==='FIRE_REQUEST' && net.role==='host' && msg.turnSeq===state.turnSeq && state.phase==='aim' && !state.turnFired){
-          const t=state.tanks[state.activeIdx];
-          remoteControl=null;state.awaitingShot=true;
-          if(t.ammo[msg.weaponId]>0)t.selectedWeapon=msg.weaponId;
-          t.aimAngle=msg.aimAngle;
-          sendNet({type:'FIRE',shotSeed:Math.floor(Math.random()*1e9),turnSeq:state.turnSeq,idx:t.idx,weaponId:t.selectedWeapon,power:msg.power,targetX:msg.targetX,...tankPose(t)});
-          return;
-        }
-        if(msg.type==='HOST_STATE' && net.role==='guest' && msg.turnSeq===state.turnSeq && state.phase==='aim'){
-          restoreTerrain(msg);msg.tanks.forEach((t,i)=>{const tank=state.tanks[i],{x,y,...rest}=t;tank.wheelPhase+=(x-(tank.targetX??tank.x))*.25;Object.assign(tank,rest,{targetX:x,targetY:y,ammo:decodeAmmo(t.ammo)});});
-          state.mines=msg.mines||[];updateHUD();return;
-        }
-        if (msg.type === 'LAN_RESULT' && net.role === 'guest' && msg.turnSeq >= state.turnSeq) {
-          lanResult = msg;
-          if(msg.timedOut||state.phase==='aim' || state.phase==='gameover'){if(msg.timedOut){state.projectiles=[];state.beams=[];state.pendingBeam=null;state.portals=[];state.blackHoles=[];state.cracklers=[];}state.phase='settle';state.settleTimer=0;state.settleDeadline=0;}
-          return;
-        }
-        if (msg.type !== 'SYNC_TANK' && msg.type !== 'FIRE') return;
-        const remoteIdx = msg.idx;
-        if (remoteIdx === net.localTankIdx && msg.type !== 'FIRE') return;
-        if (state.phase !== 'aim' || state.turnFired || msg.idx !== state.activeIdx || msg.turnSeq !== state.turnSeq) return;
-        const tank = state.tanks[remoteIdx];
-        if (!tank || !Number.isFinite(msg.x) || msg.x < 28 || msg.x > WORLD_W - 28 || !Number.isFinite(msg.y)
-            || msg.y < 0 || msg.y > WORLD_H || !Number.isFinite(msg.aimAngle)
-            || !Number.isFinite(msg.fuel) || msg.fuel < 0 || msg.fuel > 100 || !(tank.ammo[msg.weaponId] > 0)) return;
-        if (msg.type === 'FIRE' && (!Number.isFinite(msg.power) || msg.power < 0 || msg.power > 1)) return;
-        if (msg.type === 'SYNC_TANK') tank.wheelPhase += (msg.x - tank.x) * .25;
-        if (![msg.vx,msg.vy,msg.slope,msg.hp].every(Number.isFinite) || msg.hp < 1 || msg.hp > tank.maxHp) return;
-        const changedWeapon = tank.selectedWeapon !== msg.weaponId;
-        Object.assign(tank,{x:msg.x,y:msg.y,targetX:msg.x,targetY:msg.y,vx:msg.vx,vy:msg.vy,slope:msg.slope,hp:tank.hp,
-          aimAngle:msg.aimAngle,selectedWeapon:msg.weaponId,fuel:msg.fuel});
-        document.getElementById('fuelFill').style.width = tank.fuel + '%';
-        if (changedWeapon) updateWeaponHUD();
-        if (msg.type === 'FIRE') {
-          setSeed(msg.shotSeed);
-          state.awaitingShot=false;
-          fireWeapon(msg.power,msg.targetX,true);
-        }
-      }
-
-      function checkpointLanShot() {
-        lanCuts = [];
-        if (net.role !== 'guest') return;
-        const backup = document.createElement('canvas');
-        backup.width = WORLD_W; backup.height = WORLD_H;
-        backup.getContext('2d').drawImage(terrainCanvas,0,0);
-        lanBackup = {canvas:backup, mask:solidMask.slice()};
-      }
-
-      function finishLanTurn() {
-        if (net.role === 'guest') {
-          if (!lanResult) {
-            state.settleTimer = 12; state.settleDeadline = state.time + 25;
-            return;
-          }
-          const result = lanResult;
-          lanResult = null;
-          if (false && lanBackup) {
-            tCtx.clearRect(0,0,WORLD_W,WORLD_H);
-            tCtx.drawImage(lanBackup.canvas,0,0);
-            solidMask.set(lanBackup.mask);
-          }
-          lanBackup = null;
-          restoreTerrain(result);state.mines=result.mines||[];
-          state.projectiles=[];state.beams=[];state.portals=[];state.blackHoles=[];state.cracklers=[];state.pendingBeam=null;
-          result.tanks.forEach((snap,i) => {
-            const tank = state.tanks[i];
-            Object.assign(tank,snap,{targetX:snap.x,targetY:snap.y,ammo:Object.fromEntries(Object.entries(snap.ammo)
-              .map(([id,count]) => [id,count === null ? Infinity : count]))});
-          });
-          state.round = result.round;
-          state.turnSeq=result.turnSeq+1;
-          if (result.done) {
-            updateHUD();
-            state.timedOut=!!result.timedOut;endGame(result.winnerIdx!==undefined?(state.tanks[result.winnerIdx]??null):(state.tanks.find(t => t.hp > 0)??null));
-          } else {
-            beginTurn(result.nextIdx,result.wind,true,true);
-          }
-          if (session) applyRoomEvents(session);
-          return;
-        }
-        const done = battleFinished();
-        const nextIdx = nextAlive();
-        const turnSeq = state.turnSeq;
-        if (done) endGame(state.tanks.find(t => t.hp > 0) ?? null);
-        else beginTurn(nextIdx);
-        sendNet({
-          type:'LAN_RESULT',turnSeq,nextIdx,done,wind:state.wind,round:state.round,cuts:terrainHistory,rects:terrainRects,mines:state.mines,
-          tanks:state.tanks.map(({x,y,vx,vy,hp,shield,slope,fuel,ammo,aimAngle,selectedWeapon}) =>
-            ({x,y,vx,vy,hp,shield,slope,fuel,ammo,aimAngle,selectedWeapon}))
-        });
-        lanCuts = [];
-      }
-
-      function syncLanTank(tank) {
-        if(net.role==='guest')sendNet({type:'CONTROL',idx:tank.idx,turnSeq:state.turnSeq,aimAngle:tank.aimAngle,weaponId:tank.selectedWeapon,keys:{...state.keys}});
-      }
-      function tankPose(t){return {x:t.x,y:t.y,vx:t.vx,vy:t.vy,hp:t.hp,shield:t.shield,slope:t.slope,fuel:t.fuel,aimAngle:t.aimAngle,weaponId:t.selectedWeapon,selectedWeapon:t.selectedWeapon,ammo:t.ammo};}
-      function decodeAmmo(ammo){return Object.fromEntries(Object.entries(ammo).map(([k,v])=>[k,v===null?Infinity:v]));}
+      function closeP2PConnection(){const old=session;session=null;if(old)api('leave',old.auth,{attempts:1}).catch(()=>{});Object.assign(net,{active:false,connected:false,matchStarted:false,role:null,spectating:false});remoteControl=null;lanResult=null;el('lobby').hidden=true;el('roomEntry').hidden=false;updateNetBadge();}
+      function failRoom(s,error){if(session!==s)return;closeP2PConnection();cancelInput();state.running=false;el('gameOverModal').classList.add('hidden');el('p2pModal').classList.remove('hidden');statusRoom(error.message);}
       function handleRoomFailure(s,error){
         if(session!==s)return false;
         if(['تغير الدور','انتظر دورك','المضيف يزامن الحالة'].includes(error.message))return true;
-        if(error.permanent){failRoom(s,error);return false;}
-        s.disconnectedAt ||= Date.now();net.connected=false;cancelInput();
-        statusRoom('انقطع الاتصال مؤقتاً — جارٍ إعادة الاتصال…');
-        el('netBadge').textContent='إعادة الاتصال…';
-        if(Date.now()-s.disconnectedAt>150000){failRoom(s,error);return false;}return true;
+        if(/غير متوافق|رفض المضيف/.test(error.message)){failRoom(s,error);return false;}
+        s.needsSnapshot=true;net.connected=false;cancelInput();statusRoom('انقطع الاتصال — مقعدك محفوظ؛ جارٍ الاستئناف…');updateNetBadge();return true;
       }
-      function restoreTerrain(snapshot){
-        const cuts=snapshot.cuts||[],rects=snapshot.rects||[];
-        // Host history includes every deletion. Apply once, even after missed turns.
-        for(let i=terrainHistory.length;i<cuts.length;i++)carveTerrain(...cuts[i]);
-        terrainHistory=cuts.slice();
-        for(let i=terrainRects.length;i<rects.length;i++)eraseTerrainRect(...rects[i],false);
-        terrainRects=rects.slice();terrainDirty=false;
+      function acknowledgeTerrain(s,reply,packet){if(session!==s||packet.matchId!==net.lastMatchId)return;if(Number.isInteger(reply.cutCount))s.ackCuts=Math.min(terrainHistory.length,Math.max(s.ackCuts,reply.cutCount));if(Number.isInteger(reply.rectCount))s.ackRects=Math.min(terrainRects.length,Math.max(s.ackRects,reply.rectCount));}
+      function sendNet(msg){
+        const s=session;if(!s)return false;const packet=JSON.parse(JSON.stringify({...msg,matchId:net.lastMatchId,...(net.role==='host'?{revision:s.revision=(s.revision||0)+1}:{})}));
+        if(msg.type==='CONTROL'||msg.type==='HOST_STATE'){
+          if(s.poseBusy){netMetrics.poseDrops++;return false;}s.poseBusy=true;
+          s.poseOut=(async()=>{try{await s.checkpointReady;if(session!==s)return;const reply=await api('packet',{...s.auth,msg:packet},{attempts:1});acknowledgeTerrain(s,reply,packet);}catch(error){s.lastControlKey='';if(error.message==='SNAPSHOT_REQUIRED')handleRoomFailure(s,error);}finally{s.poseBusy=false;}})();return true;
+        }
+        netMetrics.urgentQueue++;netMetrics.maxUrgentQueue=Math.max(netMetrics.maxUrgentQueue,netMetrics.urgentQueue);
+        const id=requestId();s.out=s.out.then(async()=>{
+          while(session===s){try{const reply=await api('packet',{...s.auth,msg:packet,requestId:id},{attempts:1});acknowledgeTerrain(s,reply,packet);return;}catch(error){if(['تغير الدور','انتظر دورك'].includes(error.message))return;if(!handleRoomFailure(s,error))return;if(error.message==='SNAPSHOT_REQUIRED'&&net.role==='host'){try{await checkpointHost(s);}catch(ignored){}continue;}await new Promise(r=>setTimeout(r,800));}}
+        }).catch(error=>handleRoomFailure(s,error)).finally(()=>{netMetrics.urgentQueue--;});return true;
       }
-
-      function isLocalTurn() {
-        const t = state.tanks[state.activeIdx];
-        if (!t || t.isAI) return false;
-        if (config.mode === 'p2p') return net.connected && !state.awaitingShot && state.activeIdx === net.localTankIdx;
-        return true;
+      function terrainDelta(){return {cutBase:session?.ackCuts||0,rectBase:session?.ackRects||0,cuts:terrainHistory.slice(session?.ackCuts||0),rects:terrainRects.slice(session?.ackRects||0)};}
+      function restoreTerrainDelta(msg){
+        const cuts=msg.cuts||[],rects=msg.rects||[],cb=msg.cutBase??guestCuts,rb=msg.rectBase??guestRects;
+        if(cb>guestCuts||rb>guestRects)throw Error('SNAPSHOT_REQUIRED');
+        for(let i=Math.max(0,guestCuts-cb);i<cuts.length;i++)carveTerrain(...cuts[i]);
+        for(let i=Math.max(0,guestRects-rb);i<rects.length;i++)eraseTerrainRect(...rects[i],false);
+        guestCuts=Math.max(guestCuts,cb+cuts.length);guestRects=Math.max(guestRects,rb+rects.length);terrainDirty=false;
+      }
+      function encodeTerrain(){let bit=0,count=0;const runs=[];for(const pixel of solidMask){if(pixel!==bit){runs.push(count);count=0;bit=pixel;}count++;}runs.push(count);return runs;}
+      function loadTerrain(runs){let offset=0,bit=0;for(const n of runs){if(!Number.isInteger(n)||n<0||offset+n>solidMask.length)throw Error('لقطة أرض غير صالحة');solidMask.fill(bit,offset,offset+n);offset+=n;bit^=1;}if(offset!==solidMask.length)throw Error('لقطة أرض غير مكتملة');const pixels=tCtx.getImageData(0,0,WORLD_W,WORLD_H);for(let i=0;i<solidMask.length;i++)if(!solidMask[i])pixels.data[i*4+3]=0;tCtx.putImageData(pixels,0,0);}
+      function tankPose(t,ammo=true){const pose={x:+t.x.toFixed(2),y:+t.y.toFixed(2),vx:t.vx,vy:t.vy,hp:t.hp,shield:t.shield,slope:t.slope,fuel:t.fuel,aimAngle:t.aimAngle,weaponId:t.selectedWeapon,selectedWeapon:t.selectedWeapon};if(ammo)pose.ammo={...t.ammo};return pose;}
+      function decodeAmmo(ammo){return Object.fromEntries(Object.entries(ammo||{}).map(([k,v])=>[k,v===null?Infinity:v]));}
+      function worldState(fullAmmo=false){return {turnSeq:state.turnSeq,activeIdx:state.activeIdx,phase:state.phase,wind:state.wind,round:state.round,done:state.gameOver,timedOut:!!state.timedOut,winnerIdx:state.winnerIdx??-1,tournament,tanks:state.tanks.map(t=>tankPose(t,fullAmmo||t.idx===state.activeIdx)),mines:state.mines.map(m=>({...m})),projectiles:state.projectiles.map(p=>({x:p.x,y:p.y,vx:p.vx,vy:p.vy,age:p.age,color:p.color,weaponId:p.weapon.id,weaponType:p.weapon.type,netId:p.netId||(p.netId=++state.projectileSerial),fuse:p.fuse,isMeteor:p.isMeteor})),beams:state.beams.map(b=>({...b}))};}
+      async function checkpointHost(s){if(session!==s||!state.running)return;const reply=await api('checkpoint',{...s.auth,matchId:net.lastMatchId,revision:s.revision||0,terrainRle:encodeTerrain(),cutCount:terrainHistory.length,rectCount:terrainRects.length,world:worldState(true)},{attempts:2,timeout:8000});s.ackCuts=reply.cutCount;s.ackRects=reply.rectCount;}
+      function startFromServer(msg){Object.assign(net,{matchStarted:true,connected:true,lastMatchId:msg.matchId});config.mode='p2p';config.theme=msg.theme;Object.assign(config,{format:msg.format||'free',seriesLength:msg.seriesLength||1,trajectory:msg.trajectory!==false,players:msg.players});if(msg.seriesRound===1)tournament=null;else if(tournament)tournament.round=msg.seriesRound;startNewGame(msg.seed,msg.wind);if(net.role==='host'){const s=session;s.checkpointReady=checkpointHost(s);s.out=s.checkpointReady.catch(e=>handleRoomFailure(s,e));}}
+      function remoteDeath(tank){state.particles.push({type:'shockwave',x:tank.x,y:tank.y,r:6,maxR:65,life:28,maxLife:28,color:tank.color});for(let i=0;i<14;i++)state.particles.push({type:i%2?'smoke':'spark',x:tank.x,y:tank.y-5,vx:(Math.random()-.5)*5,vy:-Math.random()*4,r:5,life:30,maxLife:30,color:tank.color});sfx.playExplosion(.8);}
+      function updateSpectator(){net.spectating=net.role==='guest'&&state.tanks[net.localTankIdx]?.hp<=0;updateNetBadge();}
+      function applyWorld(msg,final=false,full=false){
+        if(!full&&(msg.turnSeq<state.turnSeq||(msg.revision??Infinity)<(state.lastRevision||0)))return;
+        if(Number.isFinite(msg.revision))state.lastRevision=msg.revision;
+        const oldPhase=state.phase;state.turnSeq=msg.turnSeq;state.activeIdx=msg.activeIdx;state.wind=msg.wind;state.round=msg.round;state.phase=msg.phase;state.turnFired=msg.phase==='firing'||msg.phase==='settle';state.awaitingShot=false;
+        msg.tanks.forEach((pose,i)=>{const tank=state.tanks[i];if(!tank)return;const wasAlive=tank.hp>0;const {x,y,ammo,...rest}=pose;
+          if(!full&&!final&&i===net.localTankIdx&&state.phase==='aim'){delete rest.aimAngle;delete rest.weaponId;delete rest.selectedWeapon;}
+          tank.wheelPhase+=(x-(tank.targetX??tank.x))*.25;Object.assign(tank,rest,{targetX:x,targetY:y});if(ammo)tank.ammo=decodeAmmo(ammo);if(full||final){tank.x=x;tank.y=y;}if(wasAlive&&tank.hp<=0)remoteDeath(tank);
+        });
+        const previousProjectiles=new Map(state.projectiles.map(p=>[p.netId,p]));
+        state.mines=msg.mines||[];state.projectiles=(msg.projectiles||[]).map(p=>({...p,x:previousProjectiles.get(p.netId)?.x??p.x,y:previousProjectiles.get(p.netId)?.y??p.y,targetX:p.x,targetY:p.y,weapon:{...getWeapon(p.weaponId),type:p.weaponType||getWeapon(p.weaponId).type},trail:[]}));state.beams=msg.beams||[];state.portals=[];state.blackHoles=[];state.pendingBeam=null;state.cracklers=[];if(msg.tournament)tournament=msg.tournament;updateSpectator();updateHUD();
+        if(msg.done||msg.phase==='gameover'){state.timedOut=!!msg.timedOut;endGame(msg.winnerIdx>=0?state.tanks[msg.winnerIdx]:(msg.winnerIdx===-1?null:survivors()[0]??null),!!msg.tournament);}
+        else {state.gameOver=false;el('gameOverModal').classList.add('hidden');if(oldPhase!==state.phase||final)focusCameraOn(state.tanks[state.activeIdx].x,state.tanks[state.activeIdx].y);}
+      }
+      async function recoverSession(s){
+        if(session!==s)return false;if(s.recovering)return s.recovering;
+        s.recovering=(async()=>{const snap=await api('snapshot',s.auth,{attempts:1,timeout:8000});if(session!==s)return false;
+          if(snap.pending){if(net.role==='host'&&snap.start){if(net.lastMatchId!==snap.start.matchId)startFromServer(snap.start);else await checkpointHost(s);s.checkpointReady=Promise.resolve();s.needsSnapshot=false;s.cursor=snap.cursor;net.connected=true;return true;}return false;}
+          if(net.role==='host'){s.cursor=snap.cursor;s.events=[];net.connected=true;await checkpointHost(s);}
+          else {netMetrics.resyncs++;net.connected=true;startFromServer(snap.start);loadTerrain(snap.terrainRle);guestCuts=snap.cutCount;guestRects=snap.rectCount;s.cursor=snap.cursor;s.events=[];tournament=snap.world.tournament||tournament;applyWorld(snap.world,false,true);}
+          if(Number.isFinite(snap.remainingMs))state.matchDeadline=performance.now()+snap.remainingMs;s.needsSnapshot=false;updateNetBadge();return true;
+        })().finally(()=>{s.recovering=null;});return s.recovering;
+      }
+      function receiveLanAction(msg){
+        if(!net.matchStarted||msg.matchId!==net.lastMatchId)return;
+        if(net.role==='host'){
+          if(msg.type==='CONTROL'&&msg.idx===state.activeIdx&&msg.turnSeq===state.turnSeq&&state.phase==='aim'&&!state.awaitingShot&&!state.turnFired){remoteControl={...msg,seen:performance.now()};const t=state.tanks[msg.idx];t.aimAngle=msg.aimAngle;if(t.ammo[msg.weaponId]>0)t.selectedWeapon=msg.weaponId;}
+          if(msg.type==='FIRE_REQUEST'&&msg.idx===state.activeIdx&&msg.turnSeq===state.turnSeq&&state.phase==='aim'&&!state.awaitingShot&&!state.turnFired){const t=state.tanks[state.activeIdx];remoteControl=null;state.awaitingShot=true;if(t.ammo[msg.weaponId]>0)t.selectedWeapon=msg.weaponId;t.aimAngle=msg.aimAngle;sendNet({type:'FIRE',shotSeed:Math.floor(Math.random()*1e9),turnSeq:state.turnSeq,idx:t.idx,weaponId:t.selectedWeapon,power:msg.power,targetX:msg.targetX,...tankPose(t)});}
+          if(msg.type==='FIRE'&&msg.turnSeq===state.turnSeq&&state.phase==='aim'&&!state.turnFired){const t=state.tanks[msg.idx];Object.assign(t,{x:msg.x,y:msg.y,aimAngle:msg.aimAngle,selectedWeapon:msg.weaponId});setSeed(msg.shotSeed);state.awaitingShot=false;fireWeapon(msg.power,msg.targetX,true);}return;
+        }
+        if(msg.type==='HEALTH_EVENT'){
+          if(msg.turnSeq<state.turnSeq)return;const t=state.tanks[msg.idx];if(!t)return;const alive=t.hp>0;if((msg.revision??Infinity)>=(state.lastRevision||0)){t.hp=msg.hp;t.shield=msg.shield;state.lastRevision=msg.revision??state.lastRevision;}t.hurtTimer=24;if(alive&&t.hp<=0)remoteDeath(t);state.floatingTexts.push({x:msg.x,y:msg.y-38,text:msg.label,color:msg.delta<0?'#4ade80':'#fb7185',life:68});updateSpectator();updateHUD();return;
+        }
+        if(msg.type==='FIRE'){if(msg.turnSeq<state.turnSeq)return;state.activeIdx=msg.idx;state.turnSeq=msg.turnSeq;state.phase='firing';state.turnFired=true;state.awaitingShot=false;const t=state.tanks[msg.idx];t.aimAngle=msg.aimAngle;t.selectedWeapon=msg.weaponId;t.recoil=10;sfx.playCannon();spawnMuzzleFlash(msg.x,msg.y-10,msg.aimAngle,getWeapon(msg.weaponId).color);return;}
+        if(msg.type==='HOST_STATE'){if(msg.turnSeq<state.turnSeq)return;restoreTerrainDelta(msg);applyWorld(msg);return;}
+        if(msg.type==='LAN_RESULT'){if(msg.turnSeq<state.turnSeq-1)return;restoreTerrainDelta(msg);applyWorld({...msg,turnSeq:msg.turnSeq+1,activeIdx:msg.nextIdx,phase:msg.done?'gameover':'aim',projectiles:[],beams:[]},true);}
+      }
+      function applyRoomEvents(s){while(session===s&&s.events.length){const event=s.events.shift();if(event.id<=s.appliedCursor)continue;const msg=event.msg;try{if(msg.type==='START')startFromServer(msg);else if(event.sender!==s.idx||msg.type==='FIRE')receiveLanAction(msg);s.appliedCursor=event.id;}catch(error){s.needsSnapshot=true;s.events=[];return;}}}
+      async function poll(s){
+        if(session!==s)return;if(s.polling)return s.polling;
+        s.polling=(async()=>{try{
+          if(s.needsSnapshot&&net.matchStarted){if(!await recoverSession(s))return;}
+          const data=await api('poll',{...s.auth,cursor:s.cursor,wait:true},{attempts:1,timeout:4000});if(session!==s)return;
+          if(data.resync){s.needsSnapshot=true;await recoverSession(s);return;}
+          net.connected=true;if(data.started&&Number.isFinite(data.remainingMs))state.matchDeadline=performance.now()+data.remainingMs;renderLobby(s,data);s.nextPollDelay=data.events.length?35:90;
+          if(data.events.length){s.cursor=data.events.at(-1).id;s.events.push(...data.events);applyRoomEvents(s);}updateSpectator();return data.events.length;
+        }catch(error){handleRoomFailure(s,error);}finally{s.polling=null;if(session===s)setTimeout(()=>poll(s),net.connected?(s.nextPollDelay||90):800);}})();return s.polling;
+      }
+      async function enterRoom(action){
+        if(session||el('createRoom').disabled)return;el('createRoom').disabled=el('joinRoom').disabled=true;
+        try{const code=el('roomCode').value.trim().replace(/[٠-٩۰-۹]/g,ch=>String(ch.charCodeAt(0)-(ch<'۰'?0x660:0x6f0)));statusRoom('جارٍ الاتصال…');
+          const room=await api(action,{count:+el('slots').value,hp:+el('health').value,format:el('battleFormat').value,seriesLength:+el('seriesLength').value,trajectory:el('trajectoryOption').checked,roomName:el('roomName').value,playerName:el('playerName').value,code,manualAddress:el('manualAddress').value},{timeout:9000,attempts:2});
+          session={...room,auth:{code:room.code,token:room.token},cursor:0,appliedCursor:0,events:[],out:Promise.resolve(),poseOut:Promise.resolve(),checkpointReady:Promise.resolve(),ackCuts:0,ackRects:0};Object.assign(net,{localTankIdx:room.idx,role:room.idx===0?'host':'guest',active:true,connected:true,spectating:false});
+          el('roomEntry').hidden=true;el('lobby').hidden=false;el('roomStart').hidden=room.idx!==0;el('roomReady').hidden=room.idx===0;el('roomStart').disabled=true;statusRoom(room.name+' • '+room.count+' لاعبين'+(room.discoveryWarning?' • '+room.discoveryWarning:''));el('roomNumber').textContent=room.name;updateNetBadge();poll(session);
+          if(room.idx===0)api('local',{}).then(info=>el('manualHostInfo').textContent='للاتصال اليدوي: '+info.addresses.join(' / ')).catch(()=>{});
+        }catch(error){statusRoom(error.message);}finally{el('createRoom').disabled=el('joinRoom').disabled=false;}
+      }
+      async function roomCommand(action,extra={}){if(!session)return;try{await api(action,{...session.auth,theme:setupTheme,...extra});if(session)session.lobbySignature=null;}catch(error){statusRoom(error.message);showToast(error.message);if(action==='team'){const own=session?.players?.find(p=>p.idx===session.idx);if(own)el('myTeam').value=String(own.team);}}}
+      function checkpointLanShot(){lanCuts=[];}
+      function finishLanTurn(){
+        if(net.role==='guest')return;
+        const done=battleFinished(),nextIdx=nextAlive(),sequence=state.turnSeq,winner=done?survivors()[0]:null;
+        if(done){state.turnSeq=sequence+1;endGame(winner);}else beginTurn(nextIdx);
+        sendNet({type:'LAN_RESULT',turnSeq:sequence,nextIdx,done,winnerIdx:done?(winner?.idx??-1):undefined,wind:state.wind,round:state.round,...terrainDelta(),mines:state.mines,tournament,tanks:state.tanks.map(t=>tankPose(t))});lanCuts=[];
+      }
+      function syncLanTank(tank){if(net.role!=='guest'||!session)return;const key=JSON.stringify([tank.aimAngle,tank.selectedWeapon,state.keys]),pressed=Object.values(state.keys).some(Boolean);if(key===session.lastControlKey&&!pressed)return;if(sendNet({type:'CONTROL',idx:tank.idx,turnSeq:state.turnSeq,aimAngle:tank.aimAngle,weaponId:tank.selectedWeapon,keys:{...state.keys}}))session.lastControlKey=key;}
+      function isLocalTurn(){const t=state.tanks[state.activeIdx];if(!t||t.isAI||t.hp<=0)return false;if(config.mode==='p2p')return net.connected&&!state.awaitingShot&&state.activeIdx===net.localTankIdx;return true;}
+      function publishHostState(){const s=session;if(!s||net.role!=='host'||!state.running||state.gameOver||!s.checkpointReady)return;const now=performance.now();if(now-lastHostState<100)return;const world=worldState(false),key=JSON.stringify(world)+':'+terrainHistory.length+':'+terrainRects.length;if(key===lastWorldKey&&now-lastHostState<600)return;if(sendNet({type:'HOST_STATE',...world,...terrainDelta()})){lastHostState=now;lastWorldKey=key;}}
+      function guestVisualStep(){
+        if(state.flashAlpha>0)state.flashAlpha=Math.max(0,state.flashAlpha-.04);if(state.shakeTime>0)state.shakeTime--;
+        for(const t of state.tanks){if(Number.isFinite(t.targetX)){t.x+=(t.targetX-t.x)*.4;t.y+=(t.targetY-t.y)*.4;}if(t.recoil>0)t.recoil*=.82;if(t.hurtTimer>0)t.hurtTimer--;}
+        for(let i=state.particles.length-1;i>=0;i--){const p=state.particles[i];if(--p.life<=0){state.particles.splice(i,1);continue;}p.x+=(p.vx||0);p.y+=(p.vy||0);if(p.maxR)p.r+=(p.maxR-p.r)*.15;}
+        for(const p of state.projectiles){p.x+=(p.targetX-p.x)*.45;p.y+=(p.targetY-p.y)*.45;p.trail.push({x:p.x,y:p.y});if(p.trail.length>10)p.trail.shift();}
+        for(let i=state.floatingTexts.length-1;i>=0;i--){const f=state.floatingTexts[i];f.y-=.8;if(--f.life<=0)state.floatingTexts.splice(i,1);}
+        if(!state.camera.manualPan){const projectile=state.projectiles[0],tank=state.tanks[state.activeIdx];if(projectile)focusCameraOn(projectile.x,projectile.y);else if(tank)focusCameraOn(tank.x,tank.y);}
+        state.camera.x+=(state.camera.targetX-state.camera.x)*.12;state.camera.y+=(state.camera.targetY-state.camera.y)*.12;state.camera.zoom+=(state.camera.targetZoom-state.camera.zoom)*.14;clampCamera();
+        if(isLocalTurn()&&state.phase==='aim'){
+          const t=state.tanks[state.activeIdx],side=Math.cos(t.aimAngle)<0?-1:1;if(state.keys.up||state.keys.down)t.aimAngle+=((state.keys.down?1:0)-(state.keys.up?1:0))*side*.028;
+          if(performance.now()-net.lastSyncSend>75){net.lastSyncSend=performance.now();syncLanTank(t);}if(state.charging){state.chargePower+=.016*state.chargeDir;if(state.chargePower>=1){state.chargePower=1;state.chargeDir=-1;}else if(state.chargePower<=.08){state.chargePower=.08;state.chargeDir=1;}updatePowerHUD();}
+        }
       }
 
       // ============================================================
@@ -1474,9 +1351,9 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
 
         matchSeed=customSeed !== null ? customSeed : Math.floor(Math.random() * 1e9);setSeed(matchSeed);
         document.getElementById('btnResume').hidden = false;
-        state.matchDeadline=performance.now()+600000;state.timedOut=false;state.shotDamage={};
+        state.matchDeadline=performance.now()+600000;state.timedOut=false;state.shotDamage={};state.projectileSerial=0;state.lastRevision=0;
         state.running = true; state.gameOver = false; state.phase = 'aim'; state.turnFired = false; state.turnSeq = 0;
-        lanCuts = []; lanBackup = null; lanResult = null;terrainHistory=[];terrainRects=[];terrainDirty=false;remoteControl=null;state.mines=[];
+        lanCuts=[];lanBackup=null;lanResult=null;terrainHistory=[];terrainRects=[];guestCuts=guestRects=0;terrainDirty=false;remoteControl=null;state.mines=[];lastWorldKey='';lastHostState=-Infinity;if(session){session.ackCuts=session.ackRects=0;session.lastControlKey='';}
         state.flashAlpha = 0; state.shakeTime = 0; state.hitStop = 0;
         state.round = 1; state.projectiles = []; state.particles = []; state.beams = [];
         state.portals = []; state.blackHoles = []; state.cracklers = []; state.floatingTexts = []; state.pendingBeam = null;
@@ -1564,9 +1441,9 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         if (tank.isAI) prepareAITurn();
       }
 
-      function endGame(winner) {
+      function endGame(winner,recorded=false) {
         if(state.gameOver)return;
-        state.gameOver = true; state.phase = 'gameover'; updateTurnStatus(); sfx.playVictory();
+        state.winnerIdx=winner?.idx??-1;state.gameOver = true; state.phase = 'gameover'; updateTurnStatus(); sfx.playVictory();
         const title = document.getElementById('winnerTitle');
         const stats = document.getElementById('winnerStats');
         if (winner) {
@@ -1580,7 +1457,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         }
         if(state.timedOut && winner)stats.textContent='انتهت الدقائق العشر؛ الفوز بحسب '+(config.format==='teams'?'مجموع دم الفريق.':'الدم المتبقي.');
         if(tournament){
-          if(winner)state.tanks.filter(t=>t.team===winner.team).forEach(t=>tournament.scores[t.idx]++);
+          if(winner&&!recorded)state.tanks.filter(t=>t.team===winner.team).forEach(t=>tournament.scores[t.idx]++);
           tournament.complete=tournament.round>=config.seriesLength;
           const ranking=state.tanks.slice().sort((a,b)=>tournament.scores[b.idx]-tournament.scores[a.idx]||b.hp-a.hp);
           stats.textContent+=' • '+(config.format==='teams'?'الفريق الأول ضد الفريق الثاني • ':'')+'الجولة '+tournament.round+'/'+config.seriesLength+' — '+ranking.map(t=>t.name+': '+tournament.scores[t.idx]).join(' | ');
@@ -2024,6 +1901,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       function stepPhysics() {
         state.time++;
         upgradeStep();
+        if(config.mode==='p2p'&&net.role==='guest'){guestVisualStep();return;}
         if (state.flashAlpha > 0) state.flashAlpha = Math.max(0, state.flashAlpha - 0.035);
         if (state.shakeTime > 0) state.shakeTime--;
         if (state.hitStop > 0) { state.hitStop--; return; }
@@ -2094,7 +1972,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         // Human Input
         const activeTank = state.tanks[state.activeIdx];
         if (state.phase === 'aim' && !state.turnFired && activeTank && activeTank.hp > 0 && (isLocalTurn() || (config.mode==='p2p' && net.role==='host' && state.activeIdx!==0)) && !document.querySelector('.modal-backdrop:not(.hidden)')) {
-          const driveKeys=config.mode==='p2p' && net.role==='host' && state.activeIdx!==0 ? (remoteControl && performance.now()-remoteControl.seen<450?remoteControl.keys:{}) : state.keys;
+          const driveKeys=config.mode==='p2p' && net.role==='host' && state.activeIdx!==0 ? (remoteControl && performance.now()-remoteControl.seen<900?remoteControl.keys:{}) : state.keys;
           const canDrive=config.mode!=='p2p'||net.role==='host';
           let changed = false;
           if (driveKeys.left && canDrive && activeTank.fuel > 0) { moveTank(activeTank, -1.7); changed = true; }
@@ -2511,7 +2389,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         for (const bh of state.blackHoles) drawBlackHole(bh);
 
         // Tanks
-        for (const t of state.tanks) if (t.hp > 0) drawTank(t);
+        for(const t of state.tanks){if(t.hp>0)drawTank(t);else{ctx.save();ctx.globalAlpha=.3;paintedTank(ctx,t,state.time);ctx.restore();}}
 
         // Laser charge glow
         if (state.pendingBeam) {
@@ -2960,7 +2838,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           : config.mode === 'p2p' ? (isLocalTurn() ? 'دورك' : 'دور الخصم')
           : ('دور '+tank.name);
         const statusEl = document.getElementById('turnStatus');
-        if (statusEl.textContent !== status) statusEl.textContent = status;
+        const label=net.spectating&&!state.gameOver?'متفرج · دور '+tank.name:status;if(statusEl.textContent!==label)statusEl.textContent=label;
         statusEl.style.borderColor = tank.color;
         document.getElementById('btnFire').disabled = !isLocalTurn() || state.phase !== 'aim' || state.turnFired;
       }
@@ -3171,7 +3049,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
           if(!data.rooms.length)list.textContent='لم تظهر غرف بعد؛ افتح غرفة على الجهاز الآخر ثم اضغط تحديث.';
           for(const room of data.rooms){
             const button=document.createElement('button');button.className='secondary-btn';button.textContent=room.name+' • '+room.code+' — انضمام';
-            button.onclick=()=>{el('roomCode').value=room.code;return enterRoom('join');};list.appendChild(button);
+            button.disabled=room.protocol!==PROTOCOL;if(button.disabled)button.textContent+=' • إصدار غير متوافق';button.onclick=()=>{el('manualAddress').value='';el('roomCode').value=room.code;return enterRoom('join');};list.appendChild(button);
           }
         }catch(error){list.textContent=error.message;}finally{el('refreshRooms').disabled=false;if(!session&&!el('p2pModal').classList.contains('hidden'))setTimeout(refreshRooms,2000);}
       }
@@ -3204,7 +3082,8 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       el('refreshRooms').onclick=refreshRooms;
       el('myTeam').onchange=()=>roomCommand('team',{team:+el('myTeam').value});
       el('createRoom').onclick = () => enterRoom('create');
-      el('joinRoom').onclick = () => enterRoom('join');
+      el('joinRoom').onclick = () => {el('manualAddress').value='';return enterRoom('join');};
+      el('joinManual').onclick=()=>{if(!el('manualAddress').value.trim()){statusRoom('أدخل IP المضيف مع المنفذ');return;}return enterRoom('join');};
       el('roomReady').onclick = () => roomCommand('ready');
       el('roomStart').onclick = () => roomCommand('start');
 
@@ -3234,7 +3113,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       btnFire.addEventListener('pointercancel', cancelCharge);
       btnFire.addEventListener('lostpointercapture', cancelCharge);
       window.addEventListener('blur', cancelInput);
-      document.addEventListener('visibilitychange', () => { if (document.hidden) cancelInput(); });
+      document.addEventListener('visibilitychange',()=>{cancelInput();if(!document.hidden&&session&&net.matchStarted){session.needsSnapshot=true;}});
 
       function cancelInput() {
         Object.keys(state.keys).forEach(key => { state.keys[key] = false; });
@@ -3344,12 +3223,12 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
       }
       function expireMatch(){
         if(state.gameOver || (config.mode==='p2p'&&net.role!=='host'))return;
-        const winner=timeoutWinner(),sequence=state.turnSeq;
+        const winner=timeoutWinner(),sequence=state.turnSeq,environment=state.phase==='aim'&&!state.awaitingShot;
+        state.projectiles=[];state.beams=[];state.portals=[];state.blackHoles=[];state.cracklers=[];state.pendingBeam=null;state.timedOut=true;if(config.mode==='p2p')state.turnSeq=sequence+1;endGame(winner);
         if(config.mode==='p2p'){
-          if(state.phase==='aim'&&!state.awaitingShot)sendNet({type:'ENVIRONMENT',turnSeq:sequence});
-          sendNet({type:'LAN_RESULT',turnSeq:sequence,nextIdx:state.activeIdx,done:true,timedOut:true,winnerIdx:winner?.idx??-1,wind:state.wind,round:state.round,cuts:terrainHistory,rects:terrainRects,mines:state.mines,tanks:state.tanks.map(tankPose)});
+          if(environment)sendNet({type:'ENVIRONMENT',turnSeq:sequence});
+          sendNet({type:'LAN_RESULT',turnSeq:sequence,nextIdx:state.activeIdx,done:true,timedOut:true,winnerIdx:winner?.idx??-1,wind:state.wind,round:state.round,...terrainDelta(),mines:state.mines,tournament,tanks:state.tanks.map(t=>tankPose(t))});
         }
-        state.projectiles=[];state.beams=[];state.portals=[];state.blackHoles=[];state.cracklers=[];state.pendingBeam=null;state.timedOut=true;endGame(winner);
       }
       function upgradeStep(){
         updateEngineTone();
@@ -3369,9 +3248,7 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
 
           }
         }
-        if(config.mode==='p2p' && net.role==='host' && state.phase==='aim' && !state.awaitingShot && performance.now()-lastHostState>100){
-          lastHostState=performance.now();sendNet({type:'HOST_STATE',turnSeq:state.turnSeq,tanks:state.tanks.map(tankPose),cuts:terrainHistory,rects:terrainRects,mines:state.mines});
-        }
+        if(config.mode==='p2p'&&net.role==='host')publishHostState();
         const economic=economicQuality();
         const cap=economic?64:prefs.quality==='high'?400:150;
         if(state.particles.length>cap)state.particles.splice(0,state.particles.length-cap);
@@ -3402,6 +3279,14 @@ body.swap-controls .hud-bottom{flex-direction:row-reverse}#rotateNotice{display:
         if(now-lastMapTime>=(economicQuality()?250:120)){drawMap();lastMapTime=now;}rafId=requestAnimationFrame(loop);
       }
 
+      let lastBackgroundTick=performance.now();
+      window.__tankBackgroundTick=()=>{
+        if(!session||net.role!=='host')return;
+        const now=performance.now(),elapsed=Math.min(130,Math.max(0,now-lastBackgroundTick));lastBackgroundTick=now;acc+=elapsed;
+        while(acc>=FIXED_STEP){stepPhysics();acc-=FIXED_STEP;}
+        if(!session.polling)poll(session);
+      };
+      window.__tankResume=()=>{lastFrame=lastBackgroundTick=performance.now();acc=0;if(session&&net.matchStarted)session.needsSnapshot=true;};
       window.onload = () => {
         resizeCanvas(); setSeed(777777); generateTerrain(config.theme); initBackdrop(); fitCameraDefault();
         lastFrame = performance.now(); if (rafId) cancelAnimationFrame(rafId); rafId = requestAnimationFrame(loop);
