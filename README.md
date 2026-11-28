@@ -86,3 +86,13 @@ Tests cover named room listing, click-to-join, admission restrictions/rejection,
 - Each round lasts ten minutes. Room polls share the server deadline. At expiry the host ends the match and broadcasts the winner: highest remaining HP in free-for-all, or greatest total team HP; equal leaders draw.
 
 Validation includes barrage count and accumulated damage, multi-hit weapon budgets, adaptive render scale/effect counts, timer expiry/ties and four-client agreement on the team winner. Actual Snapdragon 685 frame rate, physical-device background behavior and Wi-Fi discovery remain unmeasured.
+
+## LAN protocol v2 (debug / PR only)
+
+See [LAN_RECOVERY.md](docs/LAN_RECOVERY.md) for measured regressions, protocol changes, known limits and physical-device acceptance steps. This branch keeps named local rooms and host approval, adds manual local IPv4:port joining, and rejects protocol mismatches. IDs are six digits; NSD registration detects conflicting advertisements. No passwords or accounts are added.
+
+Guest gameplay is rendered from authoritative host state (including projectiles and deaths); only the host simulates network physics/damage. Reconnection uses `/room/snapshot`, which includes a full RLE collision mask and atomic event cursor. Events are bounded to 512 entries / 512 KiB; regular terrain packets are acknowledged deltas, not match history. Offline and defeated player seats remain reserved until the room is explicitly closed. HTTP/1.1 connections are reused, with 700 ms long-poll, bounded response batches and a 10-second idle socket lifetime.
+
+Debug measurements: `window.tankNetworkMetrics()` in the WebView and local-only `/room/diagnostics` on debuggable Android builds. Counters are bounded and contain sizes, durations, queue lengths and event retention; they do not contain player tokens or signing keys.
+
+Run `bash tests/run.sh`, `npm ci --prefix tests --ignore-scripts`, `python3 tests/run-game.py`, and `TANK_FAKE_CLOCK=1 TANK_GAME_TEST=lan-recovery.cjs python3 tests/run-game.py`. The new workflow builds **debug**, signs with the existing repository key, and runs Android lint. It does not publish or merge a release.

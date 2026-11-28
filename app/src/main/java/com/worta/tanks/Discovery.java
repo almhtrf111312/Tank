@@ -16,7 +16,7 @@ final class Discovery implements AutoCloseable {
     static final class Endpoint {
         final InetAddress address;
         final int port;
-        String name;
+        String name;int protocol;
         Endpoint(InetAddress address, int port) { this.address = address; this.port = port; }
     }
     private final NsdManager manager;
@@ -32,7 +32,7 @@ final class Discovery implements AutoCloseable {
         @Override public void onDiscoveryStopped(String type) {}
         @Override public void onServiceFound(NsdServiceInfo info) {
             main.post(() -> {
-                if (!closed && info.getServiceName().matches("Worta-[0-9]{4}")) {
+                if (!closed && info.getServiceName().matches("Worta-[0-9]{4,6}")) {
                     pending.add(info);
                     resolveNext();
                 }
@@ -62,6 +62,8 @@ final class Discovery implements AutoCloseable {
                     synchronized (found) {
                         Endpoint endpoint=new Endpoint(service.getHost(),service.getPort());
                         byte[] label=service.getAttributes().get("roomName");
+                        byte[] version=service.getAttributes().get("protocol");
+                        try{endpoint.protocol=version==null?0:Integer.parseInt(new String(version,java.nio.charset.StandardCharsets.US_ASCII));}catch(NumberFormatException invalid){endpoint.protocol=0;}
                         endpoint.name=label==null?"غرفة الدبابات":new String(label,java.nio.charset.StandardCharsets.UTF_8);
                         found.put(service.getServiceName(), endpoint);
                         found.notifyAll();
@@ -83,14 +85,17 @@ final class Discovery implements AutoCloseable {
             }
             Endpoint endpoint = found.get("Worta-" + code);
             if (endpoint == null) throw new IOException("أُغلق البحث عن الغرف");
+            if(endpoint.protocol!=Protocol.VERSION)throw new IOException("إصدار اللعبة غير متوافق؛ حدّث جميع الأجهزة إلى بروتوكول الشبكة 2");
             return endpoint;
         }
     }
 
+    Endpoint cached(String code){synchronized(found){return found.get("Worta-"+code);}}
+
     List<Object> rooms() {
         List<Object> rooms=new ArrayList<>();
         synchronized(found){for(Map.Entry<String,Endpoint> entry:found.entrySet())
-            rooms.add(Json.object("code",entry.getKey().substring(6),"name",entry.getValue().name));}
+            rooms.add(Json.object("code",entry.getKey().substring(6),"name",entry.getValue().name,"protocol",entry.getValue().protocol));}
         return rooms;
     }
 
@@ -104,6 +109,7 @@ final class Discovery implements AutoCloseable {
             service.setServiceType(TYPE);
             service.setPort(port);
             service.setAttribute("roomName",name);
+            service.setAttribute("protocol",Integer.toString(Protocol.VERSION));
             registration = new NsdManager.RegistrationListener() {
                 @Override public void onServiceRegistered(NsdServiceInfo info) {
                     if (!info.getServiceName().equals("Worta-" + code))

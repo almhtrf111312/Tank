@@ -7,6 +7,9 @@ SOURCES=(
   app/src/main/java/com/worta/tanks/Json.java
   app/src/main/java/com/worta/tanks/RoomEngine.java
   app/src/main/java/com/worta/tanks/LocalHttpServer.java
+  app/src/main/java/com/worta/tanks/Protocol.java
+  app/src/main/java/com/worta/tanks/TerrainState.java
+  app/src/main/java/com/worta/tanks/EndpointAddress.java
   tests/RoomServerTest.java
 )
 if command -v javac >/dev/null 2>&1; then
